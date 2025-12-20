@@ -48,6 +48,24 @@ st.markdown("""
     
     /* DATAFRAME HEADER */
     th { background-color: #111827 !important; color: #9CA3AF !important; }
+
+    /* CUSTOM STYLING FOR THE PLUS BUTTON */
+    /* This targets the primary button to make it big and round-ish */
+    div.stButton > button[kind="primary"] {
+        background: #10B981;
+        color: white;
+        border-radius: 12px;
+        font-size: 24px;
+        height: 60px;
+        width: 100%;
+        border: none;
+        box-shadow: 0 4px 10px rgba(16, 185, 129, 0.4);
+        transition: transform 0.1s;
+    }
+    div.stButton > button[kind="primary"]:active {
+        transform: scale(0.95);
+    }
+    
 </style>
 """, unsafe_allow_html=True)
 
@@ -132,14 +150,27 @@ def open_trade_modal():
         st.rerun()
 
 # ==========================================
-# --- SIDEBAR ---
+# --- HEADER & ACTION BUTTON (MOBILE OPTIMIZED) ---
+# ==========================================
+
+# Create two columns: Title on the left, Big "+" Button on the right
+col_header, col_btn = st.columns([5, 1], gap="small")
+
+with col_header:
+    st.title("ProTrade Journal")
+
+with col_btn:
+    st.write("") # Spacer to align button
+    # THIS IS THE BIG GREEN BUTTON
+    if st.button("➕", type="primary", use_container_width=True):
+        open_trade_modal()
+
+# ==========================================
+# --- SIDEBAR (ONLY WALLET SETTINGS) ---
 # ==========================================
 with st.sidebar:
-    st.markdown("## ⚙️ Controls")
-    if st.button("➕ NEW TRADE", type="primary", use_container_width=True):
-        open_trade_modal()
-    st.markdown("---")
-    with st.expander("💰 Wallet"):
+    st.markdown("## ⚙️ Settings")
+    with st.expander("💰 Wallet Management", expanded=True):
         st.session_state.initial_capital = st.number_input("Initial Balance", value=st.session_state.initial_capital)
         d = st.number_input("Deposit", min_value=0.0, step=100.0)
         w = st.number_input("Withdraw", min_value=0.0, step=100.0)
@@ -159,9 +190,8 @@ adj_capital = st.session_state.initial_capital + st.session_state.deposits - st.
 curr_equity = adj_capital + realized_pl
 roi_pct = (realized_pl / adj_capital * 100) if adj_capital > 0 else 0.0
 
-# --- FIXED KPI CARD FUNCTION (BUG FIX) ---
+# --- KPI CARD FUNCTION ---
 def kpi_card(title, value, is_money=True, color_logic=False, is_percent=False):
-    # Formatting
     if is_money:
         val_fmt = f"${value:,.2f}"
     elif is_percent:
@@ -169,7 +199,6 @@ def kpi_card(title, value, is_money=True, color_logic=False, is_percent=False):
     else:
         val_fmt = f"{value}"
         
-    # Color Logic (safe for numbers)
     color_class = ""
     if color_logic:
         if value > 0: color_class = "text-green"
@@ -182,15 +211,15 @@ def kpi_card(title, value, is_money=True, color_logic=False, is_percent=False):
     </div>
     """
 
-st.markdown("### 📊 Dashboard")
+# DASHBOARD METRICS
 c1, c2, c3, c4 = st.columns(4)
 with c1: st.markdown(kpi_card("Equity", curr_equity), unsafe_allow_html=True)
 with c2: st.markdown(kpi_card("Realized P&L", realized_pl, True, True), unsafe_allow_html=True)
-with c3: st.markdown(kpi_card("ROI", roi_pct, False, True, True), unsafe_allow_html=True) # Fixed call
+with c3: st.markdown(kpi_card("ROI", roi_pct, False, True, True), unsafe_allow_html=True)
 with c4: st.markdown(kpi_card("Trades", len(closed_df), False), unsafe_allow_html=True)
 st.write("")
 
-# Equity Chart
+# EQUITY CHART
 if not closed_df.empty:
     closed_df['Exit Date'] = pd.to_datetime(closed_df['Exit Date'])
     closed_df = closed_df.sort_values(by='Exit Date')
@@ -259,10 +288,8 @@ with tab_hist:
         closed_df['Invested'] = closed_df['Entry Price'] * closed_df['Quantity'] * closed_df['Multiplier']
         closed_df['Returned'] = closed_df['Invested'] + closed_df['Net P&L ($)']
 
-        # SUB-TABS FOR SEPARATION
         t_stocks, t_futures, t_options = st.tabs(["Stocks", "Futures", "Options"])
         
-        # Helper to style and display
         def display_history_table(df_subset, cols_to_show):
             if df_subset.empty:
                 st.info("No trades in this category.")
@@ -281,7 +308,6 @@ with tab_hist:
             
         with t_futures:
             futures = closed_df[closed_df['Asset Class'] == 'Future']
-            # FUTURES: REMOVED INVESTED/RETURNED columns as requested
             cols = ['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Quantity', 'Entry Price', 'Exit Price', 'Net P&L ($)']
             display_history_table(futures, cols)
             
