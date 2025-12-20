@@ -8,7 +8,7 @@ from datetime import datetime
 # ==========================================
 st.set_page_config(page_title="ProTrade Journal", layout="wide", page_icon="🚀")
 
-# CUSTOM CSS FOR "GLASSMORPHISM" LOOK
+# CUSTOM CSS
 st.markdown("""
 <style>
     /* GLOBAL FONTS & COLORS */
@@ -17,28 +17,19 @@ st.markdown("""
         font-family: 'Roboto', 'Helvetica Neue', sans-serif;
     }
     
-    /* MODERN CARD STYLING (Glassmorphism) */
+    /* METRIC CARDS */
     .metric-card {
         background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
         border: 1px solid #374151;
         border-radius: 12px;
         padding: 20px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-        transition: transform 0.2s;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
-    .metric-card:hover {
-        transform: translateY(-2px);
-        border-color: #4b5563;
-    }
-    
-    /* TEXT STYLING */
     .metric-label {
         color: #9CA3AF;
         font-size: 0.85rem;
-        text-transform: uppercase;
-        letter-spacing: 1.2px;
         font-weight: 600;
-        margin-bottom: 8px;
+        text-transform: uppercase;
     }
     .metric-value {
         color: #F3F4F6;
@@ -46,45 +37,17 @@ st.markdown("""
         font-weight: 700;
     }
     
-    /* PROFIT/LOSS COLORS */
+    /* COLORS */
     .text-green { color: #34D399 !important; }
     .text-red { color: #F87171 !important; }
     
-    /* BUTTONS */
-    div.stButton > button {
-        border-radius: 8px;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-        transition: all 0.3s ease;
-    }
-    div.stButton > button[kind="primary"] {
-        background: linear-gradient(90deg, #10B981 0%, #059669 100%);
-        border: none;
-        box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.39);
-    }
-    
     /* TABS */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 20px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: transparent;
-        border-radius: 0;
-        border: none;
-        color: #6B7280;
-        font-size: 1.1rem;
-    }
-    .stTabs [aria-selected="true"] {
-        color: #10B981 !important;
-        border-bottom: 2px solid #10B981;
-    }
+    .stTabs [data-baseweb="tab-list"] { gap: 20px; }
+    .stTabs [data-baseweb="tab"] { background-color: transparent; border: none; color: #6B7280; }
+    .stTabs [aria-selected="true"] { color: #10B981 !important; border-bottom: 2px solid #10B981; }
     
-    /* TABLE HEADER */
-    th {
-        background-color: #111827 !important;
-        color: #9CA3AF !important;
-    }
+    /* DATAFRAME HEADER */
+    th { background-color: #111827 !important; color: #9CA3AF !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -139,33 +102,30 @@ def open_trade_modal():
 
     st.write("")
     col_main1, col_main2 = st.columns(2)
-    with col_main1:
-        direction = st.radio("Direction", ["Long", "Short"], horizontal=True)
-    with col_main2:
-        qty = st.number_input("Size / Quantity", min_value=1, value=1)
+    with col_main1: direction = st.radio("Direction", ["Long", "Short"], horizontal=True)
+    with col_main2: qty = st.number_input("Size / Quantity", min_value=1, value=1)
     
-    # ADDED: ENTRY DATE SELECTION
-    entry_date = st.date_input("Entry Date", datetime.today())
-    
-    entry_price = st.number_input("Entry Price ($)", min_value=0.0, format="%.2f")
+    # Entry Date & Price
+    c_date, c_price = st.columns(2)
+    with c_date: entry_date = st.date_input("Entry Date", datetime.today())
+    with c_price: entry_price = st.number_input("Entry Price ($)", min_value=0.0, format="%.2f")
     
     with st.expander("Risk Management (Optional)"):
         c_risk1, c_risk2 = st.columns(2)
         with c_risk1: stop_loss = st.number_input("Stop Loss", min_value=0.0, format="%.2f")
         with c_risk2: target = st.number_input("Target", min_value=0.0, format="%.2f")
     
-    reason = st.text_area("Setup / Strategy", placeholder="Why are you taking this trade?")
+    reason = st.text_area("Strategy", placeholder="Reason for trade...")
     
     if st.button("Submit Trade", type="primary", use_container_width=True):
         new_trade = {
             "ID": len(st.session_state.trades) + 1, "Asset Class": asset_class, "Symbol": symbol,
             "Details": details, "Direction": direction, 
-            "Entry Date": entry_date.strftime("%Y-%m-%d"), # Using selected date
+            "Entry Date": entry_date.strftime("%Y-%m-%d"), 
             "Entry Price": entry_price, "Quantity": qty, "Multiplier": multiplier,
             "Stop Loss": stop_loss, "Target": target, "Reason": reason,
             "Status": "Open", "Exit Date": None, "Exit Price": 0.0,
-            "Commissions": 0.0, "Net P&L ($)": 0.0, "Net P&L (%)": 0.0,
-            "Equity Snapshot": 0.0
+            "Commissions": 0.0, "Net P&L ($)": 0.0, "Net P&L (%)": 0.0
         }
         st.session_state.trades.append(new_trade)
         st.success("Trade Executed!")
@@ -176,26 +136,21 @@ def open_trade_modal():
 # ==========================================
 with st.sidebar:
     st.markdown("## ⚙️ Controls")
-    
     if st.button("➕ NEW TRADE", type="primary", use_container_width=True):
         open_trade_modal()
-        
     st.markdown("---")
-    
-    with st.expander("💰 Wallet Settings"):
+    with st.expander("💰 Wallet"):
         st.session_state.initial_capital = st.number_input("Initial Balance", value=st.session_state.initial_capital)
         d = st.number_input("Deposit", min_value=0.0, step=100.0)
         w = st.number_input("Withdraw", min_value=0.0, step=100.0)
-        if st.button("Update Wallet"):
+        if st.button("Update"):
             st.session_state.deposits += d
             st.session_state.withdrawals += w
             st.rerun()
 
 # ==========================================
-# --- MAIN DASHBOARD LOGIC ---
+# --- MAIN LOGIC ---
 # ==========================================
-
-# 1. Data Processing
 df = pd.DataFrame(st.session_state.trades)
 closed_df = df[df['Status'] == 'Closed'].copy() if not df.empty else pd.DataFrame()
 
@@ -204,43 +159,32 @@ adj_capital = st.session_state.initial_capital + st.session_state.deposits - st.
 curr_equity = adj_capital + realized_pl
 roi_pct = (realized_pl / adj_capital * 100) if adj_capital > 0 else 0.0
 
-# 2. HTML Card Component
-def kpi_card(title, value, sub_value=None, is_money=True, color_logic=False):
+# KPI Cards
+def kpi_card(title, value, is_money=True, color_logic=False):
     val_fmt = f"${value:,.2f}" if is_money else f"{value}"
-    
     color_class = ""
     if color_logic:
         if value > 0: color_class = "text-green"
         elif value < 0: color_class = "text-red"
-    
-    sub_html = ""
-    if sub_value:
-        sub_html = f"<div style='font-size: 0.9rem; opacity: 0.7; margin-top: 5px;'>{sub_value}</div>"
-
     return f"""
     <div class="metric-card">
         <div class="metric-label">{title}</div>
         <div class="metric-value {color_class}">{val_fmt}</div>
-        {sub_html}
     </div>
     """
 
-# 3. Header Display
-st.markdown("### 📊 Performance Dashboard")
-
+st.markdown("### 📊 Dashboard")
 c1, c2, c3, c4 = st.columns(4)
-with c1: st.markdown(kpi_card("Current Equity", curr_equity, "Total Balance"), unsafe_allow_html=True)
-with c2: st.markdown(kpi_card("Realized P&L", realized_pl, color_logic=True), unsafe_allow_html=True)
-with c3: st.markdown(kpi_card("Return (ROI)", roi_pct, is_money=False, color_logic=True, sub_value="% Gain/Loss"), unsafe_allow_html=True)
-with c4: st.markdown(kpi_card("Total Trades", len(closed_df), is_money=False, sub_value="Closed Positions"), unsafe_allow_html=True)
-
+with c1: st.markdown(kpi_card("Equity", curr_equity), unsafe_allow_html=True)
+with c2: st.markdown(kpi_card("Realized P&L", realized_pl, True, True), unsafe_allow_html=True)
+with c3: st.markdown(kpi_card("ROI", f"{roi_pct:.2f}%", False, True), unsafe_allow_html=True)
+with c4: st.markdown(kpi_card("Trades", len(closed_df), False), unsafe_allow_html=True)
 st.write("")
 
-# 4. EQUITY CURVE CHART
+# Equity Chart
 if not closed_df.empty:
     closed_df['Exit Date'] = pd.to_datetime(closed_df['Exit Date'])
     closed_df = closed_df.sort_values(by='Exit Date')
-    
     closed_df['Cumulative P&L'] = closed_df['Net P&L ($)'].cumsum()
     closed_df['Equity Curve'] = adj_capital + closed_df['Cumulative P&L']
     
@@ -248,30 +192,22 @@ if not closed_df.empty:
         'Date': [pd.to_datetime(st.session_state.trades[0]['Entry Date'])] if not closed_df.empty else [datetime.today()],
         'Equity': [adj_capital]
     })
+    final_chart = pd.concat([chart_data, pd.DataFrame({'Date': closed_df['Exit Date'], 'Equity': closed_df['Equity Curve']})])
     
-    chart_df = pd.DataFrame({'Date': closed_df['Exit Date'], 'Equity': closed_df['Equity Curve']})
-    final_chart = pd.concat([chart_data, chart_df])
-
-    fig = px.area(final_chart, x='Date', y='Equity', title="💰 Account Growth (Equity Curve)", markers=True)
-    fig.update_layout(
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#9CA3AF"),
-        xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#374151"),
-        margin=dict(l=0, r=0, t=30, b=0),
-        height=300
-    )
+    fig = px.area(final_chart, x='Date', y='Equity', title="Account Growth", markers=True)
+    fig.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color="#9CA3AF"), height=300)
     fig.update_traces(line_color='#10B981', fillcolor="rgba(16, 185, 129, 0.1)")
     st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# --- TABS SECTION ---
+# --- TABS: ACTIVE & HISTORY ---
 # ==========================================
-tab_active, tab_hist = st.tabs(["🟢 Active Positions", "📚 History Log"])
+tab_active, tab_hist = st.tabs(["🟢 Active Trades", "📚 History Log"])
 
 with tab_active:
     open_trades = [t for t in st.session_state.trades if t['Status'] == 'Open']
     if not open_trades:
-        st.info("😴 No active trades. Market is quiet.")
+        st.info("No active trades.")
     else:
         for row in open_trades:
             with st.container():
@@ -288,14 +224,14 @@ with tab_active:
                 </div>
                 """, unsafe_allow_html=True)
                 
-                with st.expander("🔻 Close / Manage Trade"):
-                    c_ex1, c_ex2, c_ex3 = st.columns([1, 1, 1])
-                    with c_ex1: exit_price = st.number_input("Exit Price", key=f"ep_{row['ID']}")
-                    with c_ex2: comm = st.number_input("Comm ($)", key=f"cm_{row['ID']}")
-                    with c_ex3:
+                with st.expander("Manage Trade"):
+                    c1, c2, c3 = st.columns(3)
+                    with c1: exit_price = st.number_input("Exit Price", key=f"ep_{row['ID']}")
+                    with c2: comm = st.number_input("Comm ($)", key=f"cm_{row['ID']}")
+                    with c3:
                         st.write("")
                         st.write("")
-                        if st.button("Confirm Close", key=f"btn_{row['ID']}"):
+                        if st.button("Close Trade", key=f"btn_{row['ID']}"):
                             mult = row['Multiplier']
                             gross = (exit_price - row['Entry Price']) * row['Quantity'] * mult if row['Direction'] == 'Long' else (row['Entry Price'] - exit_price) * row['Quantity'] * mult
                             net = gross - comm
@@ -310,20 +246,37 @@ with tab_hist:
     if closed_df.empty:
         st.write("No history available.")
     else:
-        # Calculate Invested and Returned Columns
+        # Pre-calculate Invested/Returned for Stocks/Options
         closed_df['Invested'] = closed_df['Entry Price'] * closed_df['Quantity'] * closed_df['Multiplier']
         closed_df['Returned'] = closed_df['Invested'] + closed_df['Net P&L ($)']
+
+        # SUB-TABS FOR SEPARATION
+        t_stocks, t_futures, t_options = st.tabs(["Stocks", "Futures", "Options"])
         
-        display_cols = closed_df[['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Invested', 'Returned', 'Net P&L ($)', 'Net P&L (%)']]
-        
-        st.dataframe(
-            display_cols.sort_values(by='Exit Date', ascending=False).style.applymap(
-                lambda x: 'color: #34D399' if x > 0 else 'color: #F87171', subset=['Net P&L ($)', 'Net P&L (%)']
-            ).format({
-                'Net P&L ($)': "${:,.2f}", 
-                'Net P&L (%)': "{:.2f}%",
-                'Invested': "${:,.2f}",
-                'Returned': "${:,.2f}"
-            }),
-            use_container_width=True
-        )
+        # Helper to style and display
+        def display_history_table(df_subset, cols_to_show):
+            if df_subset.empty:
+                st.info("No trades in this category.")
+            else:
+                st.dataframe(
+                    df_subset[cols_to_show].sort_values(by='Exit Date', ascending=False).style.applymap(
+                        lambda x: 'color: #34D399' if x > 0 else 'color: #F87171', subset=['Net P&L ($)']
+                    ).format({'Net P&L ($)': "${:,.2f}", 'Invested': "${:,.2f}", 'Returned': "${:,.2f}", 'Entry Price': "${:,.2f}", 'Exit Price': "${:,.2f}"}),
+                    use_container_width=True
+                )
+
+        with t_stocks:
+            stocks = closed_df[closed_df['Asset Class'] == 'Stock']
+            cols = ['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Quantity', 'Entry Price', 'Exit Price', 'Invested', 'Returned', 'Net P&L ($)']
+            display_history_table(stocks, cols)
+            
+        with t_futures:
+            futures = closed_df[closed_df['Asset Class'] == 'Future']
+            # FUTURES: REMOVED INVESTED/RETURNED columns as requested
+            cols = ['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Quantity', 'Entry Price', 'Exit Price', 'Net P&L ($)']
+            display_history_table(futures, cols)
+            
+        with t_options:
+            opts = closed_df[closed_df['Asset Class'] == 'Option']
+            cols = ['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Quantity', 'Entry Price', 'Exit Price', 'Invested', 'Returned', 'Net P&L ($)']
+            display_history_table(opts, cols)
