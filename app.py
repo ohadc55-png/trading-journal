@@ -2,109 +2,175 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# --- CONFIGURATION & SETUP ---
-st.set_page_config(page_title="Pro Trading Journal", layout="wide", page_icon="📈")
+# ==========================================
+# --- CONFIGURATION & CUSTOM CSS (UX/UI) ---
+# ==========================================
+st.set_page_config(page_title="Pro Trader Dashboard", layout="wide", page_icon="📈", initial_sidebar_state="collapsed")
+
+# INJECT CUSTOM CSS FOR PROFESSIONAL FINANCIAL LOOK
+st.markdown("""
+<style>
+    /* Force Dark Theme feel and professional font styles */
+    .stApp {
+        background-color: #0E1117;
+        color: #FAFAFA;
+    }
+    
+    /* Style headers */
+    h1, h2, h3 {
+        font-family: 'Helvetica Neue', sans-serif;
+        font-weight: 600;
+        color: #E0E0E0;
+    }
+
+    /* Custom Styling for Metric Cards to look like the reference image */
+    div[data-testid="stMetric"] {
+        background-color: #262730; /* Slightly lighter dark card background */
+        border: 1px solid #363945;
+        padding: 15px;
+        border-radius: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        text-align: center;
+    }
+    
+    /* Style the metric labels and values */
+    div[data-testid="stMetricLabel"] {
+        font-size: 1rem;
+        color: #A0A0A0;
+        font-weight: 500;
+    }
+    div[data-testid="stMetricValue"] {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #FFFFFF;
+    }
+
+    /* Style Tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 10px;
+        background-color: transparent;
+    }
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #1E1E24;
+        border-radius: 5px 5px 0px 0px;
+        gap: 1px;
+        padding-top: 10px;
+        padding-bottom: 10px;
+        border: 1px solid #363945;
+        color: #A0A0A0;
+    }
+    .stTabs [aria-selected="true"] {
+        background-color: #262730 !important;
+        color: #FFFFFF !important;
+        border-bottom: 2px solid #00C897 !important; /* Green accent for active tab */
+    }
+
+    /* Expander Styling (for New Trade button) */
+    .streamlit-expanderHeader {
+        background-color: #262730;
+        border: 1px solid #363945;
+        border-radius: 5px;
+        color: #FFFFFF;
+        font-weight: 600;
+    }
+    
+    /* DataFrame Styling */
+    [data-testid="stDataFrame"] {
+        border: 1px solid #363945;
+        border-radius: 5px;
+    }
+
+</style>
+""", unsafe_allow_html=True)
 
 # --- INITIALIZE SESSION STATE ---
 if 'trades' not in st.session_state:
     st.session_state.trades = []
+if 'initial_capital' not in st.session_state:
+    st.session_state.initial_capital = 10000.0
+if 'deposits' not in st.session_state:
+    st.session_state.deposits = 0.0
+if 'withdrawals' not in st.session_state:
+    st.session_state.withdrawals = 0.0
 
-if 'capital' not in st.session_state:
-    st.session_state.capital = 10000.0  # Default starting capital
-
-if 'balance_history' not in st.session_state:
-    st.session_state.balance_history = []
-
-# --- MULTIPLIER DICTIONARY FOR FUTURES ---
+# --- MULTIPLIER DICTIONARY ---
 FUTURE_MULTIPLIERS = {
-    "ES (E-mini S&P 500)": 50,
-    "MES (Micro S&P 500)": 5,
-    "NQ (E-mini NASDAQ 100)": 20,
-    "MNQ (Micro NASDAQ 100)": 2,
-    "RTY (E-mini Russell 2000)": 50,
-    "M2K (Micro Russell 2000)": 5,
-    "GC (Gold)": 100,
-    "MGC (Micro Gold)": 10,
-    "SI (Silver)": 1000, # $1,000 per 1.0 move (standard contract is 5000oz)
-    "SIL (Micro Silver)": 100,
-    "CL (Crude Oil)": 1000
+    "ES (E-mini S&P 500)": 50, "MES (Micro S&P 500)": 5,
+    "NQ (E-mini NASDAQ 100)": 20, "MNQ (Micro NASDAQ 100)": 2,
+    "RTY (E-mini Russell 2000)": 50, "M2K (Micro Russell 2000)": 5,
+    "GC (Gold)": 100, "MGC (Micro Gold)": 10,
+    "SI (Silver)": 1000, "SIL (Micro Silver)": 100, "CL (Crude Oil)": 1000
 }
 
-# --- SIDEBAR: CAPITAL MANAGEMENT ---
-st.sidebar.header("💰 Capital Management")
-initial_cap_input = st.sidebar.number_input("Initial Capital ($)", value=st.session_state.capital, step=1000.0)
+# ==========================================
+# --- SIDEBAR (Hidden by default, used for settings) ---
+# ==========================================
+with st.sidebar:
+    st.header("⚙️ Settings & Funds")
+    st.session_state.initial_capital = st.number_input("Initial Capital Setup ($)", value=st.session_state.initial_capital, step=1000.0)
+    st.markdown("---")
+    st.subheader("Manage Cash Flow")
+    new_deposit = st.number_input("Deposit (+)", min_value=0.0, step=100.0)
+    if st.button("Confirm Deposit"):
+        st.session_state.deposits += new_deposit
+        st.success(f"Deposited ${new_deposit:,.2f}")
 
-# Update capital if changed manually
-if initial_cap_input != st.session_state.capital:
-    st.session_state.capital = initial_cap_input
+    new_withdrawal = st.number_input("Withdraw (-)", min_value=0.0, step=100.0)
+    if st.button("Confirm Withdrawal"):
+        st.session_state.withdrawals += new_withdrawal
+        st.success(f"Withdrew ${new_withdrawal:,.2f}")
 
-st.sidebar.markdown("---")
-st.sidebar.subheader("Cash Flow")
-deposit = st.sidebar.number_input("Deposit Funds (+)", min_value=0.0, step=100.0)
-withdraw = st.sidebar.number_input("Withdraw Funds (-)", min_value=0.0, step=100.0)
-
-if st.sidebar.button("Apply Cash Flow"):
-    if deposit > 0:
-        st.session_state.capital += deposit
-        st.sidebar.success(f"Deposited ${deposit:,.2f}")
-    if withdraw > 0:
-        st.session_state.capital -= withdraw
-        st.sidebar.success(f"Withdrew ${withdraw:,.2f}")
-
-# Calculate Statistics
+# ==========================================
+# --- CALCULATIONS ---
+# ==========================================
 df = pd.DataFrame(st.session_state.trades)
-total_realized_pl = df['Net P&L ($)'].sum() if not df.empty else 0.0
-current_equity = st.session_state.capital + total_realized_pl
+total_realized_pl = df[df['Status'] == 'Closed']['Net P&L ($)'].sum() if not df.empty else 0.0
 
-st.sidebar.markdown("---")
-st.sidebar.metric(label="Current Equity", value=f"${current_equity:,.2f}")
-st.sidebar.metric(label="Total Realized P&L", value=f"${total_realized_pl:,.2f}", 
-                  delta_color="normal" if total_realized_pl == 0 else "inverse")
+# Adjusted Capital = Initial + Deposits - Withdrawals
+adjusted_capital = st.session_state.initial_capital + st.session_state.deposits - st.session_state.withdrawals
 
+# Current Equity = Adjusted Capital + Realized P&L
+current_equity = adjusted_capital + total_realized_pl
 
-# --- MAIN APP UI ---
-st.title("📈 Professional Trading Journal")
-
-tab1, tab2 = st.tabs(["📝 New Entry & Active Trades", "📊 History & Analytics"])
+# Total Return % based on Adjusted Capital
+total_return_pct = (total_realized_pl / adjusted_capital * 100) if adjusted_capital > 0 else 0.0
 
 # ==========================================
-# TAB 1: NEW ENTRY & ACTIVE TRADES
+# --- MAIN DASHBOARD UI ---
 # ==========================================
-with tab1:
-    st.subheader("New Trade Entry")
-    
-    # 1. Asset Class Selection
+st.title("Multi-Asset Trading Journal")
+
+# 1. THE "NEW TRADE" BUTTON (TOP EXPANDER)
+with st.expander("➕ New Trade Entry", expanded=False):
+    st.markdown("### Enter Trade Details")
+    # --- ASSET CLASS SELECTION ---
     asset_class = st.radio("Select Asset Class:", ["Stock", "Future", "Option"], horizontal=True)
     
     col1, col2, col3 = st.columns(3)
-    
     with col1:
-        # SYMBOL INPUT LOGIC
         if asset_class == "Stock":
             symbol = st.text_input("Ticker Symbol (e.g., AAPL)").upper()
             multiplier = 1.0
             qty_label = "Shares"
             details = "Stock"
-            
         elif asset_class == "Future":
             future_name = st.selectbox("Select Contract", list(FUTURE_MULTIPLIERS.keys()))
-            symbol = future_name.split(" ")[0] # Extract symbol like 'ES'
+            symbol = future_name.split(" ")[0]
             multiplier = FUTURE_MULTIPLIERS[future_name]
             qty_label = "Contracts"
             details = f"Future ({multiplier}$/pt)"
-            
         else: # Option
-            underlying = st.text_input("Underlying Symbol (e.g., SPY)").upper()
+            underlying = st.text_input("Underlying (e.g., SPY)").upper()
             opt_type = st.selectbox("Type", ["Call", "Put"])
-            strike = st.number_input("Strike Price", step=1.0)
-            exp_date = st.date_input("Expiration Date")
+            strike = st.number_input("Strike", step=1.0)
+            exp_date = st.date_input("Expiry")
             symbol = f"{underlying} {exp_date.strftime('%d%b%y')} {strike}{opt_type[0]}"
             multiplier = 100.0
             qty_label = "Contracts"
             details = f"{opt_type} {strike} Exp: {exp_date}"
-            
-            # Optional: Underlying Target
-            underlying_target = st.number_input("Underlying Asset Target Price (Optional)", min_value=0.0, step=0.1)
+            underlying_target = st.number_input("Underlying Target (Opt.)", min_value=0.0, step=0.1)
 
     with col2:
         direction = st.radio("Direction", ["Long", "Short"], horizontal=True)
@@ -113,180 +179,130 @@ with tab1:
         
     with col3:
         if asset_class == "Option":
-            entry_price = st.number_input("Premium Price (per contract)", min_value=0.0, step=0.05, format="%.2f")
+            entry_price = st.number_input("Premium (per contract)", min_value=0.0, step=0.05, format="%.2f")
         else:
             entry_price = st.number_input("Entry Price", min_value=0.0, step=0.25, format="%.2f")
-            
         stop_loss = st.number_input("Initial Stop Loss", min_value=0.0, step=0.25)
         target_price = st.number_input("Target Price", min_value=0.0, step=0.25)
 
-    reason = st.text_area("Trade Thesis / Strategy")
+    reason = st.text_area("Trade Strategy / Thesis")
     
-    if st.button("Open Trade"):
+    if st.button("Submit Trade", type="primary"):
         new_trade = {
-            "ID": len(st.session_state.trades) + 1,
-            "Asset Class": asset_class,
-            "Symbol": symbol,
-            "Details": details,
-            "Direction": direction,
-            "Entry Date": entry_date.strftime("%Y-%m-%d"),
-            "Entry Price": entry_price,
-            "Quantity": quantity,
-            "Multiplier": multiplier,
-            "Stop Loss": stop_loss,
-            "Target": target_price,
-            "Reason": reason,
-            "Status": "Open",
-            "Exit Date": None,
-            "Exit Price": 0.0,
-            "Commissions": 0.0,
-            "Net P&L ($)": 0.0,
-            "Net P&L (%)": 0.0,
-            "Management Notes": ""
+            "ID": len(st.session_state.trades) + 1, "Asset Class": asset_class, "Symbol": symbol,
+            "Details": details, "Direction": direction, "Entry Date": entry_date.strftime("%Y-%m-%d"),
+            "Entry Price": entry_price, "Quantity": quantity, "Multiplier": multiplier,
+            "Stop Loss": stop_loss, "Target": target_price, "Reason": reason,
+            "Status": "Open", "Exit Date": None, "Exit Price": 0.0,
+            "Commissions": 0.0, "Net P&L ($)": 0.0, "Net P&L (%)": 0.0, "Management Notes": ""
         }
         st.session_state.trades.append(new_trade)
-        st.success(f"Trade Opened: {direction} {symbol}")
+        st.success("Trade Submitted Successfully!")
         st.rerun()
 
-    st.markdown("---")
-    
-    # --- ACTIVE TRADES DISPLAY (Dynamic) ---
-    st.subheader("🔥 Active Positions")
-    
-    # Filter Open Trades
+st.markdown("---")
+
+# 2. THE ACCOUNT DASHBOARD CARDS
+st.subheader("Account Summary")
+met_c1, met_c2, met_c3, met_c4 = st.columns(4)
+with met_c1:
+    st.metric("Adjusted Capital (Start + Dep - W/D)", f"${adjusted_capital:,.2f}")
+with met_c2:
+    st.metric("Current Equity", f"${current_equity:,.2f}")
+with met_c3:
+    st.metric("Total Realized P&L", f"${total_realized_pl:,.2f}", delta=f"{total_realized_pl:,.2f}", delta_color="normal")
+with met_c4:
+    st.metric("Total Return %", f"{total_return_pct:.2f}%", delta=f"{total_return_pct:.2f}%", delta_color="normal")
+
+st.markdown("---")
+
+# ==========================================
+# --- MAIN TABS LAYOUT ---
+# ==========================================
+tab_active, tab_history = st.tabs(["🔥 Active Positions", "📊 Trade History & Analytics"])
+
+# -------------------------------------------
+# TAB 1: ACTIVE POSITIONS
+# -------------------------------------------
+with tab_active:
     active_trades = [t for t in st.session_state.trades if t['Status'] == 'Open']
-    
     if not active_trades:
-        st.info("No active trades currently.")
+        st.info("No active positions. Click 'New Trade Entry' above to start.")
     else:
-        # Convert to DataFrame for easier handling
         df_active = pd.DataFrame(active_trades)
-        
-        # Check distinct asset classes
         active_classes = df_active['Asset Class'].unique()
         
-        # Helper function to display trade closure form
+        # Function for close trade form
         def display_close_form(trade_row):
-            with st.expander(f"Close Trade: {trade_row['Symbol']} (ID: {trade_row['ID']})"):
-                col_exit1, col_exit2 = st.columns(2)
-                with col_exit1:
+            with st.expander(f"🔴 Close: {trade_row['Symbol']} ({trade_row['Direction']})"):
+                c_ex1, c_ex2 = st.columns(2)
+                with c_ex1:
                     exit_price = st.number_input(f"Exit Price", key=f"ep_{trade_row['ID']}", step=0.1)
                     exit_date = st.date_input(f"Exit Date", datetime.today(), key=f"ed_{trade_row['ID']}")
-                with col_exit2:
+                with c_ex2:
                     commissions = st.number_input("Total Commissions ($)", min_value=0.0, step=1.0, key=f"cm_{trade_row['ID']}")
-                    mgt_notes = st.text_area("Management / Exit Notes", key=f"mn_{trade_row['ID']}")
+                    mgt_notes = st.text_area("Exit / Management Notes", key=f"mn_{trade_row['ID']}")
                 
-                if st.button(f"Confirm Close {trade_row['Symbol']}", key=f"btn_{trade_row['ID']}"):
-                    # CALCULATE P&L
+                if st.button(f"Confirm Close Transaction", key=f"btn_{trade_row['ID']}", type="secondary"):
                     mult = trade_row['Multiplier']
                     qty = trade_row['Quantity']
                     entry = trade_row['Entry Price']
-                    
                     if trade_row['Direction'] == 'Long':
                         gross_pnl = (exit_price - entry) * qty * mult
-                    else: # Short
+                    else:
                         gross_pnl = (entry - exit_price) * qty * mult
-                        
                     net_pnl = gross_pnl - commissions
-                    
-                    # Calculate % P&L (Based on margin/cost)
                     cost_basis = entry * qty * mult
                     pnl_percent = (net_pnl / cost_basis) * 100 if cost_basis != 0 else 0
                     
-                    # Update Record in Session State
                     for t in st.session_state.trades:
                         if t['ID'] == trade_row['ID']:
-                            t['Status'] = 'Closed'
-                            t['Exit Price'] = exit_price
-                            t['Exit Date'] = exit_date.strftime("%Y-%m-%d")
-                            t['Commissions'] = commissions
-                            t['Net P&L ($)'] = net_pnl
-                            t['Net P&L (%)'] = pnl_percent
-                            t['Management Notes'] = mgt_notes
+                            t.update({'Status': 'Closed', 'Exit Price': exit_price, 'Exit Date': exit_date.strftime("%Y-%m-%d"), 'Commissions': commissions, 'Net P&L ($)': net_pnl, 'Net P&L (%)': pnl_percent, 'Management Notes': mgt_notes})
                             break
-                    
-                    st.success(f"Trade Closed. P&L: ${net_pnl:,.2f}")
+                    st.success(f"Closed. P&L: ${net_pnl:,.2f}")
                     st.rerun()
 
-        # LOGIC: If multiple classes, split them. If single, show one table.
+        # Dynamic Display Logic
         if len(active_classes) > 1:
             for ac in active_classes:
-                st.markdown(f"### Active {ac}s")
+                st.subheader(f"Active {ac}s")
                 subset = df_active[df_active['Asset Class'] == ac]
-                
-                # Show table for quick view
-                st.dataframe(subset[['ID', 'Symbol', 'Direction', 'Entry Price', 'Quantity', 'Entry Date']])
-                
-                # Show close forms
+                st.dataframe(subset[['Symbol', 'Direction', 'Entry Price', 'Quantity', 'Entry Date', 'Stop Loss', 'Target']], use_container_width=True, hide_index=True)
                 for index, row in subset.iterrows():
                     display_close_form(row)
         else:
-            # Single class only
-            st.dataframe(df_active[['ID', 'Asset Class', 'Symbol', 'Direction', 'Entry Price', 'Quantity', 'Entry Date']])
+            st.dataframe(df_active[['Asset Class', 'Symbol', 'Direction', 'Entry Price', 'Quantity', 'Entry Date', 'Stop Loss', 'Target']], use_container_width=True, hide_index=True)
             for index, row in df_active.iterrows():
                 display_close_form(row)
 
-# ==========================================
+# -------------------------------------------
 # TAB 2: HISTORY & ANALYTICS
-# ==========================================
-with tab2:
-    st.header("Trade History & Performance")
-    
+# -------------------------------------------
+with tab_history:
     closed_trades = [t for t in st.session_state.trades if t['Status'] == 'Closed']
-    
     if not closed_trades:
         st.warning("No closed trades yet.")
     else:
-        df_closed = pd.DataFrame(closed_trades)
-        
-        # Sort by Exit Date (Newest first)
-        df_closed = df_closed.sort_values(by="Exit Date", ascending=False)
-        
-        # --- SUB-TABS FOR SECTORS ---
-        subtab_all, subtab_stock, subtab_future, subtab_option = st.tabs(
-            ["Overview (All)", "Stocks", "Futures", "Options"]
-        )
+        df_closed = pd.DataFrame(closed_trades).sort_values(by="Exit Date", ascending=False)
+        subtab_all, subtab_stock, subtab_future, subtab_option = st.tabs(["Overview (All)", "Stocks", "Futures", "Options"])
         
         def render_performance(dataframe, title):
             if dataframe.empty:
-                st.info(f"No closed trades for {title}")
+                st.info(f"No data for {title}")
                 return
-            
-            # KPI CARDS
             total_pnl = dataframe['Net P&L ($)'].sum()
             win_count = len(dataframe[dataframe['Net P&L ($)'] > 0])
-            total_count = len(dataframe)
-            win_rate = (win_count / total_count) * 100
+            win_rate = (win_count / len(dataframe)) * 100
             
-            avg_win = dataframe[dataframe['Net P&L ($)'] > 0]['Net P&L ($)'].mean()
-            avg_loss = dataframe[dataframe['Net P&L ($)'] <= 0]['Net P&L ($)'].mean()
+            st.markdown(f"#### {title} Performance")
+            kpi1, kpi2, kpi3 = st.columns(3)
+            kpi1.metric("Net P&L", f"${total_pnl:,.2f}", delta_color="normal")
+            kpi2.metric("Win Rate", f"{win_rate:.1f}%")
+            kpi3.metric("Total Trades", len(dataframe))
             
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Total Net P&L", f"${total_pnl:,.2f}", delta_color="normal")
-            c2.metric("Win Rate", f"{win_rate:.1f}%")
-            c3.metric("Avg Win", f"${avg_win:,.2f}" if not pd.isna(avg_win) else "-")
-            c4.metric("Avg Loss", f"${avg_loss:,.2f}" if not pd.isna(avg_loss) else "-")
-            
-            # STYLE TABLE (Green/Red P&L)
-            st.dataframe(
-                dataframe[[
-                    'Symbol', 'Direction', 'Entry Date', 'Exit Date', 
-                    'Entry Price', 'Exit Price', 'Net P&L ($)', 'Net P&L (%)'
-                ]].style.applymap(
-                    lambda x: 'color: green' if x > 0 else 'color: red', 
-                    subset=['Net P&L ($)', 'Net P&L (%)']
-                ),
-                use_container_width=True
-            )
+            st.dataframe(dataframe[['Symbol', 'Details', 'Direction', 'Entry Date', 'Exit Date', 'Entry Price', 'Exit Price', 'Net P&L ($)', 'Net P&L (%)']].style.applymap(lambda x: 'color: #00C897' if x > 0 else 'color: #FF5252', subset=['Net P&L ($)', 'Net P&L (%)']).format({'Net P&L ($)': "${:,.2f}", 'Net P&L (%)': "{:.2f}%", 'Entry Price': "{:.2f}", 'Exit Price': "{:.2f}"}), use_container_width=True, hide_index=True)
 
-        with subtab_all:
-            render_performance(df_closed, "All Trades")
-            
-        with subtab_stock:
-            render_performance(df_closed[df_closed['Asset Class'] == 'Stock'], "Stocks")
-            
-        with subtab_future:
-            render_performance(df_closed[df_closed['Asset Class'] == 'Future'], "Futures")
-            
-        with subtab_option:
-            render_performance(df_closed[df_closed['Asset Class'] == 'Option'], "Options")
+        with subtab_all: render_performance(df_closed, "All Asset Classes")
+        with subtab_stock: render_performance(df_closed[df_closed['Asset Class'] == 'Stock'], "Stocks")
+        with subtab_future: render_performance(df_closed[df_closed['Asset Class'] == 'Future'], "Futures")
+        with subtab_option: render_performance(df_closed[df_closed['Asset Class'] == 'Option'], "Options")
