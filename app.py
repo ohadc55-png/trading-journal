@@ -255,4 +255,65 @@ with tab_active:
                 <div style="background-color: #1F2937; padding: 15px; border-radius: 8px; border-left: 4px solid {'#10B981' if row['Direction'] == 'Long' else '#F87171'}; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
-                            <span style="font-size: 1.2rem; font-weight: bold; color
+                            <span style="font-size: 1.2rem; font-weight: bold; color: white;">{row['Symbol']}</span>
+                            <span style="background-color: #374151; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin-left: 10px;">{row['Direction']}</span>
+                            <span style="color: #9CA3AF; margin-left: 10px; font-size: 0.9rem;">{row['Entry Date']}</span>
+                        </div>
+                        <div style="color: #9CA3AF;">Entry: <span style="color: white;">${row['Entry Price']}</span> | Size: <span style="color: white;">{row['Quantity']}</span></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                with st.expander("Manage Trade"):
+                    c1, c2, c3 = st.columns(3)
+                    with c1: exit_price = st.number_input("Exit Price", key=f"ep_{row['ID']}")
+                    with c2: comm = st.number_input("Comm ($)", key=f"cm_{row['ID']}")
+                    with c3:
+                        st.write("")
+                        st.write("")
+                        if st.button("Close Trade", key=f"btn_{row['ID']}"):
+                            mult = row['Multiplier']
+                            gross = (exit_price - row['Entry Price']) * row['Quantity'] * mult if row['Direction'] == 'Long' else (row['Entry Price'] - exit_price) * row['Quantity'] * mult
+                            net = gross - comm
+                            pct = (net / (row['Entry Price'] * row['Quantity'] * mult)) * 100 if row['Entry Price'] else 0
+                            
+                            for t in st.session_state.trades:
+                                if t['ID'] == row['ID']:
+                                    t.update({'Status': 'Closed', 'Exit Price': exit_price, 'Exit Date': datetime.today().strftime("%Y-%m-%d"), 'Commissions': comm, 'Net P&L ($)': net, 'Net P&L (%)': pct})
+                            st.rerun()
+
+with tab_hist:
+    if closed_df.empty:
+        st.write("No history available.")
+    else:
+        # Pre-calculate Invested/Returned for Stocks/Options
+        closed_df['Invested'] = closed_df['Entry Price'] * closed_df['Quantity'] * closed_df['Multiplier']
+        closed_df['Returned'] = closed_df['Invested'] + closed_df['Net P&L ($)']
+
+        t_stocks, t_futures, t_options = st.tabs(["Stocks", "Futures", "Options"])
+        
+        def display_history_table(df_subset, cols_to_show):
+            if df_subset.empty:
+                st.info("No trades in this category.")
+            else:
+                st.dataframe(
+                    df_subset[cols_to_show].sort_values(by='Exit Date', ascending=False).style.applymap(
+                        lambda x: 'color: #34D399' if x > 0 else 'color: #F87171', subset=['Net P&L ($)']
+                    ).format({'Net P&L ($)': "${:,.2f}", 'Invested': "${:,.2f}", 'Returned': "${:,.2f}", 'Entry Price': "${:,.2f}", 'Exit Price': "${:,.2f}"}),
+                    use_container_width=True
+                )
+
+        with t_stocks:
+            stocks = closed_df[closed_df['Asset Class'] == 'Stock']
+            cols = ['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Quantity', 'Entry Price', 'Exit Price', 'Invested', 'Returned', 'Net P&L ($)']
+            display_history_table(stocks, cols)
+            
+        with t_futures:
+            futures = closed_df[closed_df['Asset Class'] == 'Future']
+            cols = ['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Quantity', 'Entry Price', 'Exit Price', 'Net P&L ($)']
+            display_history_table(futures, cols)
+            
+        with t_options:
+            opts = closed_df[closed_df['Asset Class'] == 'Option']
+            cols = ['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Quantity', 'Entry Price', 'Exit Price', 'Invested', 'Returned', 'Net P&L ($)']
+            display_history_table(opts, cols)
