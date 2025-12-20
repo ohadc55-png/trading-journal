@@ -1,64 +1,91 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 
 # ==========================================
-# --- CONFIGURATION & CUSTOM CSS ---
+# --- CONFIGURATION & PRO UI STYLING ---
 # ==========================================
-st.set_page_config(page_title="Pro Trader Journal", layout="wide", page_icon="📈")
+st.set_page_config(page_title="ProTrade Journal", layout="wide", page_icon="🚀")
 
-# CSS: FORCING LIGHT TEXT ON DARK BACKGROUND
+# CUSTOM CSS FOR "GLASSMORPHISM" LOOK
 st.markdown("""
 <style>
-    /* 1. FORCE ALL TEXT TO BE LIGHT */
-    .stApp, p, h1, h2, h3, h4, h5, h6, span, div, label {
-        color: #E0E0E0 !important; /* Bright light gray/white */
-        font-family: 'Segoe UI', sans-serif;
+    /* GLOBAL FONTS & COLORS */
+    .stApp {
+        background-color: #0E1117;
+        font-family: 'Roboto', 'Helvetica Neue', sans-serif;
     }
     
-    /* 2. FORCE INPUT FIELDS TO BE READABLE */
-    .stTextInput input, .stNumberInput input, .stDateInput input, .stSelectbox div, .stTextArea textarea {
-        color: #FFFFFF !important; /* White text inside inputs */
-        background-color: #262730 !important; /* Dark background for inputs */
-        border: 1px solid #4a4a4a;
+    /* MODERN CARD STYLING (Glassmorphism) */
+    .metric-card {
+        background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+        border: 1px solid #374151;
+        border-radius: 12px;
+        padding: 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        transition: transform 0.2s;
+    }
+    .metric-card:hover {
+        transform: translateY(-2px);
+        border-color: #4b5563;
     }
     
-    /* 3. FIX LABEL COLORS (The titles above inputs) */
-    .stMarkdown label, div[data-testid="stInputLabel"] {
-        color: #00e5ff !important; /* Cyan color for input labels to make them pop */
-        font-weight: bold;
-    }
-
-    /* 4. DASHBOARD CARDS STYLING */
-    .metric-container {
-        background-color: #1c1c21;
-        border: 1px solid #333;
-        border-radius: 8px;
-        padding: 15px;
-        text-align: center;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+    /* TEXT STYLING */
+    .metric-label {
+        color: #9CA3AF;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 1.2px;
+        font-weight: 600;
+        margin-bottom: 8px;
     }
     .metric-value {
-        color: #ffffff !important;
-        font-size: 1.8rem;
+        color: #F3F4F6;
+        font-size: 2rem;
         font-weight: 700;
-        text-shadow: 0 0 10px rgba(255, 255, 255, 0.1);
-    }
-    .metric-label {
-        color: #a0a0a0 !important;
-        font-size: 0.9rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
     }
     
-    /* 5. BUTTON STYLING */
+    /* PROFIT/LOSS COLORS */
+    .text-green { color: #34D399 !important; }
+    .text-red { color: #F87171 !important; }
+    
+    /* BUTTONS */
     div.stButton > button {
-        background-color: #00C897;
-        color: white !important;
+        border-radius: 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        transition: all 0.3s ease;
+    }
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(90deg, #10B981 0%, #059669 100%);
         border: none;
-        font-weight: bold;
+        box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.39);
     }
     
+    /* TABS */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 20px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background-color: transparent;
+        border-radius: 0;
+        border: none;
+        color: #6B7280;
+        font-size: 1.1rem;
+    }
+    .stTabs [aria-selected="true"] {
+        color: #10B981 !important;
+        border-bottom: 2px solid #10B981;
+    }
+    
+    /* TABLE HEADER */
+    th {
+        background-color: #111827 !important;
+        color: #9CA3AF !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -82,19 +109,16 @@ FUTURE_MULTIPLIERS = {
 }
 
 # ==========================================
-# --- MODAL: NEW TRADE ENTRY (POP-UP) ---
+# --- MODAL: NEW TRADE ENTRY ---
 # ==========================================
-@st.dialog("➕ Enter New Trade Details")
+@st.dialog("🚀 New Trade Entry")
 def open_trade_modal():
-    # This entire function runs inside a pop-up window
-    
-    asset_class = st.selectbox("Select Asset Class", ["Stock", "Future", "Option"])
+    asset_class = st.selectbox("Asset Class", ["Stock", "Future", "Option"])
     
     symbol = ""
     multiplier = 1.0
     details = ""
     
-    # Logic for Inputs based on Class
     if asset_class == "Stock":
         symbol = st.text_input("Ticker Symbol").upper()
         details = "Stock"
@@ -104,161 +128,194 @@ def open_trade_modal():
         multiplier = FUTURE_MULTIPLIERS[fut]
         details = "Future"
     else: # Option
-        col_opt1, col_opt2 = st.columns(2)
-        with col_opt1:
-            und = st.text_input("Underlying Asset").upper()
-            o_type = st.selectbox("Type", ["Call", "Put"])
-        with col_opt2:
-            strike = st.text_input("Strike Price")
-            exp = st.date_input("Expiration")
-        
+        c1, c2 = st.columns(2)
+        with c1: und = st.text_input("Underlying").upper()
+        with c2: o_type = st.selectbox("Type", ["Call", "Put"])
+        c3, c4 = st.columns(2)
+        with c3: strike = st.text_input("Strike")
+        with c4: exp = st.date_input("Expiry")
         symbol = f"{und} {o_type} {strike}"
         multiplier = 100.0
         details = f"{o_type} {strike} {exp}"
 
-    st.markdown("---")
-    
-    c1, c2 = st.columns(2)
-    with c1:
+    st.write("")
+    col_main1, col_main2 = st.columns(2)
+    with col_main1:
         direction = st.radio("Direction", ["Long", "Short"], horizontal=True)
-    with c2:
-        qty = st.number_input("Quantity / Size", min_value=1, value=1)
+    with col_main2:
+        qty = st.number_input("Size / Quantity", min_value=1, value=1)
         
-    entry_price = st.number_input("Entry Price", min_value=0.0, format="%.2f")
+    entry_price = st.number_input("Entry Price ($)", min_value=0.0, format="%.2f")
     
-    c3, c4 = st.columns(2)
-    with c3:
-        stop_loss = st.number_input("Stop Loss", min_value=0.0, format="%.2f")
-    with c4:
-        target = st.number_input("Target Price", min_value=0.0, format="%.2f")
-        
-    reason = st.text_area("Strategy / Thesis (Optional)")
+    with st.expander("Risk Management (Optional)"):
+        c_risk1, c_risk2 = st.columns(2)
+        with c_risk1: stop_loss = st.number_input("Stop Loss", min_value=0.0, format="%.2f")
+        with c_risk2: target = st.number_input("Target", min_value=0.0, format="%.2f")
     
-    if st.button("Submit Trade", use_container_width=True):
+    reason = st.text_area("Setup / Strategy", placeholder="Why are you taking this trade?")
+    
+    if st.button("Submit Trade", type="primary", use_container_width=True):
         new_trade = {
             "ID": len(st.session_state.trades) + 1, "Asset Class": asset_class, "Symbol": symbol,
             "Details": details, "Direction": direction, "Entry Date": datetime.today().strftime("%Y-%m-%d"),
             "Entry Price": entry_price, "Quantity": qty, "Multiplier": multiplier,
             "Stop Loss": stop_loss, "Target": target, "Reason": reason,
             "Status": "Open", "Exit Date": None, "Exit Price": 0.0,
-            "Commissions": 0.0, "Net P&L ($)": 0.0, "Net P&L (%)": 0.0, "Management Notes": ""
+            "Commissions": 0.0, "Net P&L ($)": 0.0, "Net P&L (%)": 0.0,
+            "Equity Snapshot": 0.0 # Placeholder
         }
         st.session_state.trades.append(new_trade)
-        st.success("Trade Added!")
+        st.success("Trade Executed!")
         st.rerun()
 
 # ==========================================
-# --- SIDEBAR: SETTINGS & BUTTONS ---
+# --- SIDEBAR ---
 # ==========================================
 with st.sidebar:
-    st.title("⚡ Actions")
+    st.markdown("## ⚙️ Controls")
     
-    # THE BIG BUTTON THAT OPENS THE POP-UP
     if st.button("➕ NEW TRADE", type="primary", use_container_width=True):
         open_trade_modal()
         
     st.markdown("---")
-    with st.expander("💰 Capital Settings", expanded=False):
-        st.session_state.initial_capital = st.number_input("Start Capital", value=st.session_state.initial_capital)
-        dep = st.number_input("Deposit (+)", min_value=0.0, step=100.0)
-        wd = st.number_input("Withdraw (-)", min_value=0.0, step=100.0)
-        if st.button("Update Funds"):
-            st.session_state.deposits += dep
-            st.session_state.withdrawals += wd
+    
+    with st.expander("💰 Wallet Settings"):
+        st.session_state.initial_capital = st.number_input("Initial Balance", value=st.session_state.initial_capital)
+        d = st.number_input("Deposit", min_value=0.0, step=100.0)
+        w = st.number_input("Withdraw", min_value=0.0, step=100.0)
+        if st.button("Update Wallet"):
+            st.session_state.deposits += d
+            st.session_state.withdrawals += w
             st.rerun()
 
 # ==========================================
-# --- MAIN DASHBOARD ---
+# --- MAIN DASHBOARD LOGIC ---
 # ==========================================
 
-# CALCULATIONS
+# 1. Data Processing
 df = pd.DataFrame(st.session_state.trades)
-realized_pl = df[df['Status'] == 'Closed']['Net P&L ($)'].sum() if not df.empty else 0.0
+closed_df = df[df['Status'] == 'Closed'].copy() if not df.empty else pd.DataFrame()
+
+realized_pl = closed_df['Net P&L ($)'].sum() if not closed_df.empty else 0.0
 adj_capital = st.session_state.initial_capital + st.session_state.deposits - st.session_state.withdrawals
 curr_equity = adj_capital + realized_pl
-return_pct = (realized_pl / adj_capital * 100) if adj_capital > 0 else 0.0
+roi_pct = (realized_pl / adj_capital * 100) if adj_capital > 0 else 0.0
 
-# HELPER FOR CARDS
-def card_html(label, value, color_override=None):
-    val_str = f"${value:,.2f}" if isinstance(value, float) else value
-    if "Return" in label: val_str = f"{value:.2f}%"
+# 2. HTML Card Component
+def kpi_card(title, value, sub_value=None, is_money=True, color_logic=False):
+    val_fmt = f"${value:,.2f}" if is_money else f"{value}"
     
-    color_style = ""
-    if color_override == "green": color_style = "color: #00e676 !important;"
-    elif color_override == "red": color_style = "color: #ff1744 !important;"
+    color_class = ""
+    if color_logic:
+        if value > 0: color_class = "text-green"
+        elif value < 0: color_class = "text-red"
     
+    sub_html = ""
+    if sub_value:
+        sub_html = f"<div style='font-size: 0.9rem; opacity: 0.7; margin-top: 5px;'>{sub_value}</div>"
+
     return f"""
-    <div class="metric-container">
-        <div class="metric-label">{label}</div>
-        <div class="metric-value" style="{color_style}">{val_str}</div>
+    <div class="metric-card">
+        <div class="metric-label">{title}</div>
+        <div class="metric-value {color_class}">{val_fmt}</div>
+        {sub_html}
     </div>
     """
 
-st.markdown("## 📊 Account Overview")
+# 3. Header Display
+st.markdown("### 📊 Performance Dashboard")
 
-# RENDER CARDS
 c1, c2, c3, c4 = st.columns(4)
-with c1: st.markdown(card_html("Adjusted Capital", adj_capital), unsafe_allow_html=True)
-with c2: st.markdown(card_html("Current Equity", curr_equity, "white"), unsafe_allow_html=True)
-with c3: 
-    color = "green" if realized_pl >= 0 else "red"
-    st.markdown(card_html("Realized P&L", realized_pl, color), unsafe_allow_html=True)
-with c4: 
-    color = "green" if return_pct >= 0 else "red"
-    st.markdown(card_html("Total Return", return_pct, color), unsafe_allow_html=True)
+with c1: st.markdown(kpi_card("Current Equity", curr_equity, "Total Balance"), unsafe_allow_html=True)
+with c2: st.markdown(kpi_card("Realized P&L", realized_pl, color_logic=True), unsafe_allow_html=True)
+with c3: st.markdown(kpi_card("Return (ROI)", roi_pct, is_money=False, color_logic=True, sub_value="% Gain/Loss"), unsafe_allow_html=True)
+with c4: st.markdown(kpi_card("Total Trades", len(closed_df), is_money=False, sub_value="Closed Positions"), unsafe_allow_html=True)
 
-st.write("") 
+st.write("")
+
+# 4. EQUITY CURVE CHART (The "Pro" Feature)
+if not closed_df.empty:
+    closed_df['Exit Date'] = pd.to_datetime(closed_df['Exit Date'])
+    closed_df = closed_df.sort_values(by='Exit Date')
+    
+    # Calculate cumulative equity
+    closed_df['Cumulative P&L'] = closed_df['Net P&L ($)'].cumsum()
+    closed_df['Equity Curve'] = adj_capital + closed_df['Cumulative P&L']
+    
+    # Add starting point
+    chart_data = pd.DataFrame({
+        'Date': [pd.to_datetime(st.session_state.trades[0]['Entry Date'])] if not closed_df.empty else [datetime.today()],
+        'Equity': [adj_capital]
+    })
+    
+    chart_df = pd.DataFrame({'Date': closed_df['Exit Date'], 'Equity': closed_df['Equity Curve']})
+    final_chart = pd.concat([chart_data, chart_df])
+
+    fig = px.area(final_chart, x='Date', y='Equity', title="💰 Account Growth (Equity Curve)", markers=True)
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#9CA3AF"),
+        xaxis=dict(showgrid=False), yaxis=dict(showgrid=True, gridcolor="#374151"),
+        margin=dict(l=0, r=0, t=30, b=0),
+        height=300
+    )
+    fig.update_traces(line_color='#10B981', fillcolor="rgba(16, 185, 129, 0.1)")
+    st.plotly_chart(fig, use_container_width=True)
 
 # ==========================================
-# --- TABS: ACTIVE & HISTORY ---
+# --- TABS SECTION ---
 # ==========================================
-tab_active, tab_hist = st.tabs(["🟢 Active Positions", "📚 Trade History"])
+tab_active, tab_hist = st.tabs(["🟢 Active Positions", "📚 History Log"])
 
 with tab_active:
     open_trades = [t for t in st.session_state.trades if t['Status'] == 'Open']
     if not open_trades:
-        st.info("No active trades.")
+        st.info("😴 No active trades. Market is quiet.")
     else:
-        df_open = pd.DataFrame(open_trades)
-        for i, row in df_open.iterrows():
-            # Use Expander for each row to keep it clean
-            with st.expander(f"{row['Symbol']} | {row['Direction']} | Size: {row['Quantity']} | Entry: {row['Entry Price']}", expanded=True):
-                c_exit1, c_exit2, c_exit3 = st.columns([1, 1, 2])
-                with c_exit1:
-                    exit_price = st.number_input("Exit Price", key=f"ep_{row['ID']}")
-                with c_exit2:
-                    comm = st.number_input("Comm ($)", key=f"cm_{row['ID']}")
-                with c_exit3:
-                    st.write("") 
-                    st.write("") 
-                    if st.button("🔴 CLOSE TRADE", key=f"cls_{row['ID']}"):
-                        # Calculation Logic
-                        mult = row['Multiplier']
-                        if row['Direction'] == 'Long':
-                            gross = (exit_price - row['Entry Price']) * row['Quantity'] * mult
-                        else:
-                            gross = (row['Entry Price'] - exit_price) * row['Quantity'] * mult
-                        net = gross - comm
-                        cost = row['Entry Price'] * row['Quantity'] * mult
-                        pct = (net / cost) * 100 if cost != 0 else 0
-                        
-                        # Update State
-                        for t in st.session_state.trades:
-                            if t['ID'] == row['ID']:
-                                t.update({'Status': 'Closed', 'Exit Price': exit_price, 'Exit Date': datetime.today().strftime("%Y-%m-%d"), 'Commissions': comm, 'Net P&L ($)': net, 'Net P&L (%)': pct})
-                        st.rerun()
+        for row in open_trades:
+            with st.container():
+                # Custom Row Styling
+                st.markdown(f"""
+                <div style="background-color: #1F2937; padding: 15px; border-radius: 8px; border-left: 4px solid {'#10B981' if row['Direction'] == 'Long' else '#F87171'}; margin-bottom: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="font-size: 1.2rem; font-weight: bold; color: white;">{row['Symbol']}</span>
+                            <span style="background-color: #374151; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin-left: 10px;">{row['Direction']}</span>
+                        </div>
+                        <div style="color: #9CA3AF;">Entry: <span style="color: white;">${row['Entry Price']}</span> | Size: <span style="color: white;">{row['Quantity']}</span></div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                with st.expander("🔻 Close / Manage Trade"):
+                    c_ex1, c_ex2, c_ex3 = st.columns([1, 1, 1])
+                    with c_ex1: exit_price = st.number_input("Exit Price", key=f"ep_{row['ID']}")
+                    with c_ex2: comm = st.number_input("Comm ($)", key=f"cm_{row['ID']}")
+                    with c_ex3:
+                        st.write("")
+                        st.write("")
+                        if st.button("Confirm Close", key=f"btn_{row['ID']}"):
+                            # Calc
+                            mult = row['Multiplier']
+                            gross = (exit_price - row['Entry Price']) * row['Quantity'] * mult if row['Direction'] == 'Long' else (row['Entry Price'] - exit_price) * row['Quantity'] * mult
+                            net = gross - comm
+                            pct = (net / (row['Entry Price'] * row['Quantity'] * mult)) * 100 if row['Entry Price'] else 0
+                            
+                            for t in st.session_state.trades:
+                                if t['ID'] == row['ID']:
+                                    t.update({'Status': 'Closed', 'Exit Price': exit_price, 'Exit Date': datetime.today().strftime("%Y-%m-%d"), 'Commissions': comm, 'Net P&L ($)': net, 'Net P&L (%)': pct})
+                            st.rerun()
 
 with tab_hist:
-    closed_trades = [t for t in st.session_state.trades if t['Status'] == 'Closed']
-    if not closed_trades:
-        st.write("No closed trades available.")
+    if closed_df.empty:
+        st.write("No history available.")
     else:
-        df_closed = pd.DataFrame(closed_trades).sort_values(by="Exit Date", ascending=False)
+        # Styled DataFrame
+        display_cols = closed_df[['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Net P&L ($)', 'Net P&L (%)']]
         
-        # Display Table with Colors
         st.dataframe(
-            df_closed[['Symbol', 'Direction', 'Entry Price', 'Exit Price', 'Net P&L ($)', 'Net P&L (%)']].style.applymap(
-                lambda x: 'color: #00e676' if x > 0 else 'color: #ff1744', subset=['Net P&L ($)', 'Net P&L (%)']
+            display_cols.sort_values(by='Exit Date', ascending=False).style.applymap(
+                lambda x: 'color: #34D399' if x > 0 else 'color: #F87171', subset=['Net P&L ($)', 'Net P&L (%)']
             ).format({'Net P&L ($)': "${:,.2f}", 'Net P&L (%)': "{:.2f}%"}),
             use_container_width=True
         )
