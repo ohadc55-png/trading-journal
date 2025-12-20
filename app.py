@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from datetime import datetime
 
 # ==========================================
@@ -144,7 +143,10 @@ def open_trade_modal():
         direction = st.radio("Direction", ["Long", "Short"], horizontal=True)
     with col_main2:
         qty = st.number_input("Size / Quantity", min_value=1, value=1)
-        
+    
+    # ADDED: ENTRY DATE SELECTION
+    entry_date = st.date_input("Entry Date", datetime.today())
+    
     entry_price = st.number_input("Entry Price ($)", min_value=0.0, format="%.2f")
     
     with st.expander("Risk Management (Optional)"):
@@ -157,12 +159,13 @@ def open_trade_modal():
     if st.button("Submit Trade", type="primary", use_container_width=True):
         new_trade = {
             "ID": len(st.session_state.trades) + 1, "Asset Class": asset_class, "Symbol": symbol,
-            "Details": details, "Direction": direction, "Entry Date": datetime.today().strftime("%Y-%m-%d"),
+            "Details": details, "Direction": direction, 
+            "Entry Date": entry_date.strftime("%Y-%m-%d"), # Using selected date
             "Entry Price": entry_price, "Quantity": qty, "Multiplier": multiplier,
             "Stop Loss": stop_loss, "Target": target, "Reason": reason,
             "Status": "Open", "Exit Date": None, "Exit Price": 0.0,
             "Commissions": 0.0, "Net P&L ($)": 0.0, "Net P&L (%)": 0.0,
-            "Equity Snapshot": 0.0 # Placeholder
+            "Equity Snapshot": 0.0
         }
         st.session_state.trades.append(new_trade)
         st.success("Trade Executed!")
@@ -233,16 +236,14 @@ with c4: st.markdown(kpi_card("Total Trades", len(closed_df), is_money=False, su
 
 st.write("")
 
-# 4. EQUITY CURVE CHART (The "Pro" Feature)
+# 4. EQUITY CURVE CHART
 if not closed_df.empty:
     closed_df['Exit Date'] = pd.to_datetime(closed_df['Exit Date'])
     closed_df = closed_df.sort_values(by='Exit Date')
     
-    # Calculate cumulative equity
     closed_df['Cumulative P&L'] = closed_df['Net P&L ($)'].cumsum()
     closed_df['Equity Curve'] = adj_capital + closed_df['Cumulative P&L']
     
-    # Add starting point
     chart_data = pd.DataFrame({
         'Date': [pd.to_datetime(st.session_state.trades[0]['Entry Date'])] if not closed_df.empty else [datetime.today()],
         'Equity': [adj_capital]
@@ -274,13 +275,13 @@ with tab_active:
     else:
         for row in open_trades:
             with st.container():
-                # Custom Row Styling
                 st.markdown(f"""
                 <div style="background-color: #1F2937; padding: 15px; border-radius: 8px; border-left: 4px solid {'#10B981' if row['Direction'] == 'Long' else '#F87171'}; margin-bottom: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <div>
                             <span style="font-size: 1.2rem; font-weight: bold; color: white;">{row['Symbol']}</span>
                             <span style="background-color: #374151; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; margin-left: 10px;">{row['Direction']}</span>
+                            <span style="color: #9CA3AF; margin-left: 10px; font-size: 0.9rem;">{row['Entry Date']}</span>
                         </div>
                         <div style="color: #9CA3AF;">Entry: <span style="color: white;">${row['Entry Price']}</span> | Size: <span style="color: white;">{row['Quantity']}</span></div>
                     </div>
@@ -295,7 +296,6 @@ with tab_active:
                         st.write("")
                         st.write("")
                         if st.button("Confirm Close", key=f"btn_{row['ID']}"):
-                            # Calc
                             mult = row['Multiplier']
                             gross = (exit_price - row['Entry Price']) * row['Quantity'] * mult if row['Direction'] == 'Long' else (row['Entry Price'] - exit_price) * row['Quantity'] * mult
                             net = gross - comm
@@ -310,12 +310,20 @@ with tab_hist:
     if closed_df.empty:
         st.write("No history available.")
     else:
-        # Styled DataFrame
-        display_cols = closed_df[['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Net P&L ($)', 'Net P&L (%)']]
+        # Calculate Invested and Returned Columns
+        closed_df['Invested'] = closed_df['Entry Price'] * closed_df['Quantity'] * closed_df['Multiplier']
+        closed_df['Returned'] = closed_df['Invested'] + closed_df['Net P&L ($)']
+        
+        display_cols = closed_df[['Symbol', 'Direction', 'Entry Date', 'Exit Date', 'Invested', 'Returned', 'Net P&L ($)', 'Net P&L (%)']]
         
         st.dataframe(
             display_cols.sort_values(by='Exit Date', ascending=False).style.applymap(
                 lambda x: 'color: #34D399' if x > 0 else 'color: #F87171', subset=['Net P&L ($)', 'Net P&L (%)']
-            ).format({'Net P&L ($)': "${:,.2f}", 'Net P&L (%)': "{:.2f}%"}),
+            ).format({
+                'Net P&L ($)': "${:,.2f}", 
+                'Net P&L (%)': "{:.2f}%",
+                'Invested': "${:,.2f}",
+                'Returned': "${:,.2f}"
+            }),
             use_container_width=True
         )
