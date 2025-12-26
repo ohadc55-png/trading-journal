@@ -21,6 +21,7 @@ st.markdown("""
     .metric-value { color: #F3F4F6; font-size: 1.8rem; font-weight: 700; }
     .text-green { color: #34D399 !important; }
     .text-red { color: #F87171 !important; }
+    
     .trade-container {
         background-color: #111827;
         border: 1px solid #374151;
@@ -28,6 +29,15 @@ st.markdown("""
         padding: 15px;
         margin-bottom: 15px;
     }
+    .history-card {
+        background-color: #1F2937;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 8px;
+        border-right: 6px solid #374151;
+    }
+    .history-win { border-right: 6px solid #34D399; }
+    .history-loss { border-right: 6px solid #F87171; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -83,6 +93,7 @@ def open_trade_modal():
     if st.button("Open Position", type="primary", use_container_width=True):
         new_trade = {
             "ID": len(st.session_state.trades) + 1,
+            "Asset Class": asset_class,
             "Symbol": symbol,
             "Direction": direction,
             "Entry Date": entry_date.strftime("%Y-%m-%d"),
@@ -99,22 +110,18 @@ def open_trade_modal():
         st.rerun()
 
 # ==========================================
-# --- SIDEBAR & RESET LOGIC ---
+# --- SIDEBAR & CALCULATIONS ---
 # ==========================================
 with st.sidebar:
     st.title("⚙️ Controls")
     if st.button("➕ NEW TRADE", type="primary", use_container_width=True):
         open_trade_modal()
-    
     st.markdown("---")
     st.session_state.initial_capital = st.number_input("Account Start ($)", value=st.session_state.initial_capital)
-    
-    if st.button("⚠️ CLEAR ALL DATA", use_container_width=True):
+    if st.button("⚠️ CLEAR ALL DATA"):
         st.session_state.trades = []
         st.rerun()
 
-# --- CALCULATIONS (SAFE VERSION) ---
-# השתמשנו ב- .get() כדי למנוע קריסה אם יש נתונים ישנים בזיכרון
 total_realized_pl = sum(t.get('Total Realized P&L', 0.0) for t in st.session_state.trades)
 adj_capital = st.session_state.initial_capital + st.session_state.deposits - st.session_state.withdrawals
 curr_equity = adj_capital + total_realized_pl
@@ -128,14 +135,8 @@ def kpi_card(title, value, is_money=True, color_logic=False, is_percent=False):
     if color_logic:
         if value > 0: color_class = "text-green"
         elif value < 0: color_class = "text-red"
-    
     val_fmt = f"${value:,.2f}" if is_money else (f"{value:+.2f}%" if is_percent else str(value))
-    return f"""
-    <div class="metric-card">
-        <div class="metric-label">{title}</div>
-        <div class="metric-value {color_class}">{val_fmt}</div>
-    </div>
-    """
+    return f'<div class="metric-card"><div class="metric-label">{title}</div><div class="metric-value {color_class}">{val_fmt}</div></div>'
 
 st.markdown("## 📊 Portfolio Dashboard")
 c1, c2, c3, c4 = st.columns(4)
@@ -147,74 +148,74 @@ with c4:
     st.markdown(kpi_card("Open Trades", open_count, False), unsafe_allow_html=True)
 
 # ==========================================
-# --- TRADES MANAGEMENT ---
+# --- MAIN TABS ---
 # ==========================================
 st.markdown("---")
-tab1, tab2 = st.tabs(["📂 Active Trades", "📜 History"])
+tab_active, tab_history = st.tabs(["📂 Active Trades", "📜 History"])
 
-with tab1:
+# --- ACTIVE TRADES ---
+with tab_active:
     open_trades = [t for t in st.session_state.trades if t.get('Status') == 'Open']
     if not open_trades:
-        st.info("No active trades. Click 'New Trade' to start.")
-    
-    for i, trade in enumerate(st.session_state.trades):
-        if trade.get('Status') == 'Open':
-            with st.container():
-                st.markdown(f"""
-                <div class="trade-container">
-                    <h4 style='margin:0;'>{trade.get('Symbol', 'N/A')} ({trade.get('Direction', 'N/A')})</h4>
-                    <small>Entry: ${trade.get('Entry Price', 0)} | Rem. Qty: {trade.get('Remaining Qty', 0)} / {trade.get('Original Qty', 0)}</small>
-                </div>
-                """, unsafe_allow_html=True)
-                
-                exp = st.expander(f"Manage Trade - {trade.get('Symbol')}")
-                with exp:
-                    col_ex1, col_ex2, col_ex3 = st.columns(3)
-                    rem_qty = trade.get('Remaining Qty', 0)
-                    sell_qty = col_ex1.number_input("Qty to Sell", min_value=1, max_value=max(1, rem_qty), key=f"q_{i}")
-                    sell_price = col_ex2.number_input("Exit Price", min_value=0.0, key=f"p_{i}")
-                    sell_comm = col_ex3.number_input("Commission ($)", min_value=0.0, key=f"c_{i}")
-                    
-                    if st.button("Execute Partial Sale", key=f"btn_{i}", use_container_width=True):
-                        multiplier = trade.get('Multiplier', 1.0)
-                        entry_p = trade.get('Entry Price', 0.0)
-                        
-                        if trade['Direction'] == "Long":
-                            part_pnl = (sell_price - entry_p) * sell_qty * multiplier
-                        else:
-                            part_pnl = (entry_p - sell_price) * sell_qty * multiplier
-                        
-                        net_part_pnl = part_pnl - sell_comm
-                        
-                        if 'Exits' not in trade: trade['Exits'] = []
-                        trade['Exits'].append({
-                            "qty": sell_qty, "price": sell_price, "pnl": net_part_pnl, "date": datetime.now().strftime("%Y-%m-%d")
-                        })
-                        trade['Remaining Qty'] -= sell_qty
-                        trade['Total Realized P&L'] = trade.get('Total Realized P&L', 0.0) + net_part_pnl
-                        
-                        if trade['Remaining Qty'] <= 0:
-                            trade['Status'] = "Closed"
-                        
+        st.info("No active trades.")
+    else:
+        for i, trade in enumerate(st.session_state.trades):
+            if trade.get('Status') == 'Open':
+                st.markdown(f'<div class="trade-container"><b>{trade.get("Symbol")}</b> ({trade.get("Direction")}) | Entry: ${trade.get("Entry Price")}</div>', unsafe_allow_html=True)
+                with st.expander(f"Manage {trade.get('Symbol')}"):
+                    c_q, c_p, c_c = st.columns(3)
+                    rem = trade.get('Remaining Qty', 0)
+                    sq = c_q.number_input("Qty to Sell", 1, max(1, rem), key=f"q_{i}")
+                    sp = c_p.number_input("Exit Price", 0.0, key=f"p_{i}")
+                    sc = c_c.number_input("Comm ($)", 0.0, key=f"c_{i}")
+                    if st.button("Close Partial", key=f"b_{i}"):
+                        mult = trade.get('Multiplier', 1.0)
+                        pnl = ((sp - trade['Entry Price']) if trade['Direction'] == "Long" else (trade['Entry Price'] - sp)) * sq * mult - sc
+                        trade.setdefault('Exits', []).append({"qty": sq, "price": sp, "pnl": pnl, "date": datetime.now().strftime("%Y-%m-%d")})
+                        trade['Remaining Qty'] -= sq
+                        trade['Total Realized P&L'] = trade.get('Total Realized P&L', 0.0) + pnl
+                        if trade['Remaining Qty'] <= 0: trade['Status'] = "Closed"
                         st.rerun()
 
-                if trade.get('Exits'):
-                    sold_qty = sum(e['qty'] for e in trade['Exits'])
-                    entry_v = sold_qty * trade['Entry Price'] * trade['Multiplier']
-                    trade_pnl_pct = (trade['Total Realized P&L'] / entry_v * 100) if entry_v > 0 else 0.0
-                    
-                    color = "#34D399" if trade['Total Realized P&L'] >= 0 else "#F87171"
-                    st.markdown(f"""
-                        <div style="padding-left: 20px; border-left: 3px solid {color}; margin-bottom: 20px;">
-                            <span style="color: {color}; font-weight: bold;">
-                                Realized so far: ${trade['Total Realized P&L']:,.2f} ({trade_pnl_pct:+.2f}%)
-                            </span>
-                        </div>
-                    """, unsafe_allow_html=True)
-
-with tab2:
+# --- HISTORY ---
+with tab_history:
     closed_trades = [t for t in st.session_state.trades if t.get('Status') == 'Closed']
-    if closed_trades:
-        st.dataframe(pd.DataFrame(closed_trades), use_container_width=True)
-    else:
+    if not closed_trades:
         st.write("History is empty.")
+    else:
+        # חלוקה לפי סוגי נכסים
+        h_stocks, h_futures, h_options = st.tabs(["📈 Stocks", "⛓️ Futures", "🎭 Options"])
+        
+        asset_map = {"Stock": h_stocks, "Future": h_futures, "Option": h_options}
+        
+        for a_type, tab_obj in asset_map.items():
+            with tab_obj:
+                type_trades = [t for t in closed_trades if t.get('Asset Class') == a_type]
+                if not type_trades:
+                    st.write(f"No {a_type} history yet.")
+                else:
+                    for t in type_trades:
+                        pnl = t.get('Total Realized P&L', 0.0)
+                        # חישוב אחוז רווח סופי
+                        entry_val = t.get('Original Qty', 1) * t.get('Entry Price', 1) * t.get('Multiplier', 1)
+                        pct = (pnl / entry_val * 100) if entry_val > 0 else 0.0
+                        
+                        status_class = "history-win" if pnl >= 0 else "history-loss"
+                        color_text = "text-green" if pnl >= 0 else "text-red"
+                        
+                        st.markdown(f"""
+                        <div class="history-card {status_class}">
+                            <div style="display: flex; justify-content: space-between;">
+                                <div>
+                                    <b style="font-size: 1.1rem;">{t.get('Symbol')}</b> ({t.get('Direction')})<br>
+                                    <small style="color: #9CA3AF;">Entry: ${t.get('Entry Price')} | Qty: {t.get('Original Qty')}</small>
+                                </div>
+                                <div style="text-align: right;">
+                                    <span class="{color_text}" style="font-weight: bold; font-size: 1.1rem;">
+                                        {"+" if pnl >= 0 else ""}{pnl:,.2f}$
+                                    </span><br>
+                                    <small class="{color_text}">{pct:+.2f}%</small>
+                                </div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
