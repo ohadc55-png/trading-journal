@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 from datetime import datetime
 
 # ==========================================
@@ -8,7 +7,6 @@ from datetime import datetime
 # ==========================================
 st.set_page_config(page_title="ProTrade Journal", layout="wide", page_icon="🚀")
 
-# CUSTOM CSS
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; font-family: 'Roboto', sans-serif; }
@@ -56,7 +54,6 @@ FUTURE_MULTIPLIERS = {
 @st.dialog("🚀 New Trade Entry")
 def open_trade_modal():
     asset_class = st.selectbox("Asset Class", ["Stock", "Future", "Option"])
-    
     symbol = ""
     multiplier = 1.0
     
@@ -93,7 +90,7 @@ def open_trade_modal():
             "Original Qty": qty,
             "Remaining Qty": qty,
             "Multiplier": multiplier,
-            "Exits": [],  # List of partial sales
+            "Exits": [],
             "Total Realized P&L": 0.0,
             "Status": "Open",
             "Reason": reason
@@ -102,7 +99,7 @@ def open_trade_modal():
         st.rerun()
 
 # ==========================================
-# --- SIDEBAR & CALCULATIONS ---
+# --- SIDEBAR & RESET LOGIC ---
 # ==========================================
 with st.sidebar:
     st.title("⚙️ Controls")
@@ -111,9 +108,14 @@ with st.sidebar:
     
     st.markdown("---")
     st.session_state.initial_capital = st.number_input("Account Start ($)", value=st.session_state.initial_capital)
+    
+    if st.button("⚠️ CLEAR ALL DATA", use_container_width=True):
+        st.session_state.trades = []
+        st.rerun()
 
-# Calculation Logic
-total_realized_pl = sum(t['Total Realized P&L'] for t in st.session_state.trades)
+# --- CALCULATIONS (SAFE VERSION) ---
+# השתמשנו ב- .get() כדי למנוע קריסה אם יש נתונים ישנים בזיכרון
+total_realized_pl = sum(t.get('Total Realized P&L', 0.0) for t in st.session_state.trades)
 adj_capital = st.session_state.initial_capital + st.session_state.deposits - st.session_state.withdrawals
 curr_equity = adj_capital + total_realized_pl
 roi_pct = (total_realized_pl / adj_capital * 100) if adj_capital > 0 else 0.0
@@ -141,7 +143,7 @@ with c1: st.markdown(kpi_card("Current Equity", curr_equity), unsafe_allow_html=
 with c2: st.markdown(kpi_card("Total Realized P&L", total_realized_pl, True, True), unsafe_allow_html=True)
 with c3: st.markdown(kpi_card("Account ROI", roi_pct, False, True, True), unsafe_allow_html=True)
 with c4: 
-    open_count = len([t for t in st.session_state.trades if t['Status'] == 'Open'])
+    open_count = len([t for t in st.session_state.trades if t.get('Status') == 'Open'])
     st.markdown(kpi_card("Open Trades", open_count, False), unsafe_allow_html=True)
 
 # ==========================================
@@ -151,56 +153,55 @@ st.markdown("---")
 tab1, tab2 = st.tabs(["📂 Active Trades", "📜 History"])
 
 with tab1:
-    open_trades = [t for t in st.session_state.trades if t['Status'] == 'Open']
+    open_trades = [t for t in st.session_state.trades if t.get('Status') == 'Open']
     if not open_trades:
         st.info("No active trades. Click 'New Trade' to start.")
     
     for i, trade in enumerate(st.session_state.trades):
-        if trade['Status'] == 'Open':
+        if trade.get('Status') == 'Open':
             with st.container():
-                # Trade Header
                 st.markdown(f"""
                 <div class="trade-container">
-                    <h4 style='margin:0;'>{trade['Symbol']} ({trade['Direction']})</h4>
-                    <small>Entry: ${trade['Entry Price']} | Rem. Qty: {trade['Remaining Qty']} / {trade['Original Qty']}</small>
+                    <h4 style='margin:0;'>{trade.get('Symbol', 'N/A')} ({trade.get('Direction', 'N/A')})</h4>
+                    <small>Entry: ${trade.get('Entry Price', 0)} | Rem. Qty: {trade.get('Remaining Qty', 0)} / {trade.get('Original Qty', 0)}</small>
                 </div>
                 """, unsafe_allow_html=True)
                 
-                exp = st.expander(f"Manage Trade - {trade['Symbol']}")
+                exp = st.expander(f"Manage Trade - {trade.get('Symbol')}")
                 with exp:
                     col_ex1, col_ex2, col_ex3 = st.columns(3)
-                    sell_qty = col_ex1.number_input("Qty to Sell", min_value=1, max_value=trade['Remaining Qty'], key=f"q_{i}")
+                    rem_qty = trade.get('Remaining Qty', 0)
+                    sell_qty = col_ex1.number_input("Qty to Sell", min_value=1, max_value=max(1, rem_qty), key=f"q_{i}")
                     sell_price = col_ex2.number_input("Exit Price", min_value=0.0, key=f"p_{i}")
                     sell_comm = col_ex3.number_input("Commission ($)", min_value=0.0, key=f"c_{i}")
                     
                     if st.button("Execute Partial Sale", key=f"btn_{i}", use_container_width=True):
-                        # Calculate P&L for this slice
-                        multiplier = trade['Multiplier']
+                        multiplier = trade.get('Multiplier', 1.0)
+                        entry_p = trade.get('Entry Price', 0.0)
+                        
                         if trade['Direction'] == "Long":
-                            part_pnl = (sell_price - trade['Entry Price']) * sell_qty * multiplier
+                            part_pnl = (sell_price - entry_p) * sell_qty * multiplier
                         else:
-                            part_pnl = (trade['Entry Price'] - sell_price) * sell_qty * multiplier
+                            part_pnl = (entry_p - sell_price) * sell_qty * multiplier
                         
                         net_part_pnl = part_pnl - sell_comm
                         
-                        # Update Trade Data
+                        if 'Exits' not in trade: trade['Exits'] = []
                         trade['Exits'].append({
                             "qty": sell_qty, "price": sell_price, "pnl": net_part_pnl, "date": datetime.now().strftime("%Y-%m-%d")
                         })
                         trade['Remaining Qty'] -= sell_qty
-                        trade['Total Realized P&L'] += net_part_pnl
+                        trade['Total Realized P&L'] = trade.get('Total Realized P&L', 0.0) + net_part_pnl
                         
-                        if trade['Remaining Qty'] == 0:
+                        if trade['Remaining Qty'] <= 0:
                             trade['Status'] = "Closed"
                         
-                        st.success(f"Sold {sell_qty} units. P&L: ${net_part_pnl:,.2f}")
                         st.rerun()
 
-                # Display Cumulative P&L for this trade
-                if trade['Exits']:
+                if trade.get('Exits'):
                     sold_qty = sum(e['qty'] for e in trade['Exits'])
-                    entry_value = sold_qty * trade['Entry Price'] * trade['Multiplier']
-                    trade_pnl_pct = (trade['Total Realized P&L'] / entry_value * 100) if entry_value > 0 else 0.0
+                    entry_v = sold_qty * trade['Entry Price'] * trade['Multiplier']
+                    trade_pnl_pct = (trade['Total Realized P&L'] / entry_v * 100) if entry_v > 0 else 0.0
                     
                     color = "#34D399" if trade['Total Realized P&L'] >= 0 else "#F87171"
                     st.markdown(f"""
@@ -212,10 +213,8 @@ with tab1:
                     """, unsafe_allow_html=True)
 
 with tab2:
-    closed_trades = [t for t in st.session_state.trades if t['Status'] == 'Closed']
+    closed_trades = [t for t in st.session_state.trades if t.get('Status') == 'Closed']
     if closed_trades:
-        history_df = pd.DataFrame(closed_trades)
-        st.dataframe(history_df[['Symbol', 'Direction', 'Entry Price', 'Original Qty', 'Total Realized P&L']], use_container_width=True)
+        st.dataframe(pd.DataFrame(closed_trades), use_container_width=True)
     else:
         st.write("History is empty.")
-
