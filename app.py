@@ -202,12 +202,16 @@ with tab_history:
             card_class = "history-win" if final_pnl >= 0 else "history-loss"
             text_class = "text-green" if final_pnl >= 0 else "text-red"
             
+            # חישוב הסימן לפני ה-f-string כדי למנוע בעיות פרסור
+            pnl_sign = "+" if final_pnl >= 0 else ""
+            pnl_display = f"{pnl_sign}{final_pnl:,.2f}$ ({final_roi:+.2f}%)"
+            
             st.markdown(f"""
             <div class="history-card {card_class}">
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <span style="font-size: 1.4rem; font-weight: bold;">{t.get('Symbol')} <small style="font-weight: normal; color: #9CA3AF;">({t.get('Asset Class')})</small></span>
                     <span class="{text_class}" style="font-size: 1.4rem; font-weight: bold;">
-                        {"+" if final_pnl >= 0 else ""}{final_pnl:,.2f}$ ({final_roi:+.2f}%)
+                        {pnl_display}
                     </span>
                 </div>
                 <div class="divider"></div>
