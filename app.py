@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 
 # ==========================================
@@ -109,6 +111,12 @@ with st.sidebar:
         open_trade_modal()
     st.markdown("---")
     st.session_state.initial_capital = st.number_input("Account Start ($)", value=st.session_state.initial_capital)
+    
+    # Add benchmark target setting
+    if 'benchmark_target' not in st.session_state:
+        st.session_state.benchmark_target = 0.0
+    st.session_state.benchmark_target = st.number_input("Benchmark Target ($)", min_value=0.0, value=st.session_state.benchmark_target, step=100.0, help="Set a target P&L to track against")
+    
     if st.button("⚠️ CLEAR SESSION & DATA", use_container_width=True):
         st.session_state.trades = []
         st.rerun()
@@ -135,6 +143,181 @@ with c1: st.markdown(kpi("Current Equity", curr_equity), unsafe_allow_html=True)
 with c2: st.markdown(kpi("Total Realized P&L", total_pnl, True, True), unsafe_allow_html=True)
 with c3: st.markdown(kpi("Account ROI", account_roi, False, True, True), unsafe_allow_html=True)
 with c4: st.markdown(kpi("Open Trades", len([t for t in st.session_state.trades if t.get('Status') == 'Open']), False), unsafe_allow_html=True)
+
+# ==========================================
+# --- P&L CHART WITH BENCHMARK ---
+# ==========================================
+st.markdown("---")
+st.markdown("## 📈 P&L Performance Chart")
+
+# Collect all exit events with dates and P&L
+exit_events = []
+for trade in st.session_state.trades:
+    if trade.get('Status') == 'Closed' and trade.get('Exits'):
+        for exit_data in trade.get('Exits', []):
+            exit_events.append({
+                'date': exit_data.get('date', ''),
+                'pnl': exit_data.get('pnl', 0.0),
+                'symbol': trade.get('Symbol', ''),
+                'trade_id': trade.get('ID', 0)
+            })
+
+# Also add entry dates for open trades (with 0 P&L for visualization)
+for trade in st.session_state.trades:
+    if trade.get('Status') == 'Open':
+        exit_events.append({
+            'date': trade.get('Entry Date', ''),
+            'pnl': 0.0,
+            'symbol': trade.get('Symbol', ''),
+            'trade_id': trade.get('ID', 0)
+        })
+
+if exit_events:
+    # Convert to DataFrame and sort by date
+    df_events = pd.DataFrame(exit_events)
+    df_events['date'] = pd.to_datetime(df_events['date'], errors='coerce')
+    df_events = df_events.sort_values('date').reset_index(drop=True)
+    
+    # Calculate cumulative P&L
+    df_events['cumulative_pnl'] = df_events['pnl'].cumsum()
+    df_events['cumulative_equity'] = st.session_state.initial_capital + df_events['cumulative_pnl']
+    
+    # Create figure with subplots
+    fig = go.Figure()
+    
+    # Add cumulative P&L line
+    fig.add_trace(go.Scatter(
+        x=df_events['date'],
+        y=df_events['cumulative_pnl'],
+        mode='lines+markers',
+        name='Cumulative P&L',
+        line=dict(color='#10B981', width=3),
+        marker=dict(size=8),
+        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>P&L: $%{y:,.2f}<extra></extra>'
+    ))
+    
+    # Add benchmark line (zero line)
+    fig.add_hline(
+        y=0,
+        line_dash="dash",
+        line_color="#6B7280",
+        annotation_text="Break Even",
+        annotation_position="right",
+        opacity=0.7
+    )
+    
+    # Add individual trade points (green for positive, red for negative)
+    for idx, row in df_events.iterrows():
+        color = '#34D399' if row['pnl'] >= 0 else '#F87171'
+        fig.add_trace(go.Scatter(
+            x=[row['date']],
+            y=[row['cumulative_pnl']],
+            mode='markers',
+            name='Trade' if idx == 0 else '',
+            marker=dict(
+                size=12,
+                color=color,
+                line=dict(width=2, color='white'),
+                symbol='circle'
+            ),
+            showlegend=False,
+            hovertemplate=f"<b>{row['symbol']}</b><br>Date: %{{x|%Y-%m-%d}}<br>Trade P&L: ${row['pnl']:,.2f}<br>Cumulative: $%{{y:,.2f}}<extra></extra>"
+        ))
+    
+    # Add target benchmark (optional - user can set in sidebar)
+    if 'benchmark_target' in st.session_state and st.session_state.benchmark_target > 0:
+        fig.add_hline(
+            y=st.session_state.benchmark_target,
+            line_dash="dot",
+            line_color="#FBBF24",
+            annotation_text=f"Target: ${st.session_state.benchmark_target:,.0f}",
+            annotation_position="right",
+            opacity=0.6
+        )
+    
+    # Update layout for dark theme
+    fig.update_layout(
+        title={
+            'text': 'Cumulative P&L Over Time',
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {'size': 20, 'color': '#F3F4F6'}
+        },
+        xaxis_title='Date',
+        yaxis_title='Cumulative P&L ($)',
+        template='plotly_dark',
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        hovermode='x unified',
+        height=500,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="right",
+            x=1
+        ),
+        xaxis=dict(
+            gridcolor='#374151',
+            showgrid=True,
+            zeroline=False
+        ),
+        yaxis=dict(
+            gridcolor='#374151',
+            showgrid=True,
+            zeroline=False
+        )
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Add equity curve chart
+    st.markdown("### 💰 Equity Curve")
+    fig_equity = go.Figure()
+    
+    fig_equity.add_trace(go.Scatter(
+        x=df_events['date'],
+        y=df_events['cumulative_equity'],
+        mode='lines+markers',
+        name='Account Equity',
+        line=dict(color='#3B82F6', width=3),
+        fill='tonexty',
+        fillcolor='rgba(59, 130, 246, 0.1)',
+        hovertemplate='<b>%{x|%Y-%m-%d}</b><br>Equity: $%{y:,.2f}<extra></extra>'
+    ))
+    
+    # Add initial capital line
+    fig_equity.add_hline(
+        y=st.session_state.initial_capital,
+        line_dash="dash",
+        line_color="#6B7280",
+        annotation_text=f"Initial: ${st.session_state.initial_capital:,.0f}",
+        annotation_position="right",
+        opacity=0.7
+    )
+    
+    fig_equity.update_layout(
+        title={
+            'text': 'Account Equity Over Time',
+            'x': 0.5,
+            'xanchor': 'center',
+            'font': {'size': 20, 'color': '#F3F4F6'}
+        },
+        xaxis_title='Date',
+        yaxis_title='Equity ($)',
+        template='plotly_dark',
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        height=400,
+        hovermode='x unified',
+        xaxis=dict(gridcolor='#374151', showgrid=True),
+        yaxis=dict(gridcolor='#374151', showgrid=True)
+    )
+    
+    st.plotly_chart(fig_equity, use_container_width=True)
+    
+else:
+    st.info("📊 No trading data yet. Start adding trades to see your P&L chart!")
 
 # ==========================================
 # --- MAIN TABS ---
@@ -179,11 +362,12 @@ with tab_active:
 # --- טאב היסטוריה מפורטת (דרישת המשתמש) ---
 with tab_history:
     closed = [t for t in st.session_state.trades if t.get('Status') == 'Closed']
+    
     if not closed:
         st.write("History is empty.")
     else:
-        for t in closed:
-            # אגרגציה וחישוב נתונים לסיכום הטרייד
+        # Helper function to render a trade card
+        def render_trade_card(t):
             mult = t.get('Multiplier', 1.0)
             total_invested = t.get('Original Qty', 0) * t.get('Entry Price', 0) * mult
             
@@ -235,3 +419,50 @@ with tab_history:
                 </div>
             </div>
             """, unsafe_allow_html=True)
+        
+        # Separate trades by asset class
+        stocks = [t for t in closed if t.get('Asset Class') == 'Stock']
+        futures = [t for t in closed if t.get('Asset Class') == 'Future']
+        options = [t for t in closed if t.get('Asset Class') == 'Option']
+        
+        # Create tabs for each asset class
+        tab_stocks, tab_futures, tab_options, tab_all = st.tabs([
+            f"📊 Stocks ({len(stocks)})",
+            f"📈 Futures ({len(futures)})",
+            f"⚡ Options ({len(options)})",
+            "📋 All Trades"
+        ])
+        
+        # Stocks tab
+        with tab_stocks:
+            if not stocks:
+                st.info("No stock trades in history.")
+            else:
+                # Sort by date (most recent first)
+                stocks_sorted = sorted(stocks, key=lambda x: x.get('Entry Date', ''), reverse=True)
+                for t in stocks_sorted:
+                    render_trade_card(t)
+        
+        # Futures tab
+        with tab_futures:
+            if not futures:
+                st.info("No futures trades in history.")
+            else:
+                futures_sorted = sorted(futures, key=lambda x: x.get('Entry Date', ''), reverse=True)
+                for t in futures_sorted:
+                    render_trade_card(t)
+        
+        # Options tab
+        with tab_options:
+            if not options:
+                st.info("No options trades in history.")
+            else:
+                options_sorted = sorted(options, key=lambda x: x.get('Entry Date', ''), reverse=True)
+                for t in options_sorted:
+                    render_trade_card(t)
+        
+        # All trades tab
+        with tab_all:
+            all_sorted = sorted(closed, key=lambda x: x.get('Entry Date', ''), reverse=True)
+            for t in all_sorted:
+                render_trade_card(t)
