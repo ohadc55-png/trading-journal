@@ -5,12 +5,13 @@ from datetime import datetime
 import requests
 
 # ==========================================
-# --- CONFIGURATION & STYLING ---
+# --- CONFIGURATION & PRO UI STYLING ---
 # ==========================================
 st.set_page_config(page_title="ProTrade Journal Pro", layout="wide", page_icon="📈")
 
 API_KEY = 'Y2S0SAL1NRF0Z40J'
 
+# עיצוב CSS יציב (QA: וידוא סגירת מחרוזות)
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; font-family: 'Roboto', sans-serif; }
@@ -41,94 +42,51 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ==========================================
-# --- INITIALIZE SESSION STATE ---
-# ==========================================
-# אתחול בטוח של הנתונים כדי למנוע קריסות
-if 'trades' not in st.session_state: 
-    st.session_state.trades = []
-if 'initial_capital' not in st.session_state: 
-    st.session_state.initial_capital = 10000.0
+# --- INITIALIZE STATE (QA: Safe Initialization) ---
+if 'trades' not in st.session_state: st.session_state.trades = []
+if 'initial_capital' not in st.session_state: st.session_state.initial_capital = 10000.0
 
 # ==========================================
-# --- API FUNCTIONS ---
+# --- API & MARKET TICKER ---
 # ==========================================
-@st.cache_data(ttl=60) # עדכון כל דקה
-def fetch_ticker_data(symbol):
+@st.cache_data(ttl=60)
+def fetch_market_price(symbol):
     try:
         url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={API_KEY}"
         res = requests.get(url, timeout=5).json()
-        q = res.get('Global Quote', {})
+        quote = res.get('Global Quote', {})
         return {
-            'price': float(q.get('05. price', 0)),
-            'change_pct': float(q.get('10. change percent', '0').replace('%',''))
+            'price': float(quote.get('05. price', 0)),
+            'change_pct': float(quote.get('10. change percent', '0').replace('%', ''))
         }
     except: return None
 
-# ==========================================
-# --- TOP TICKER BAR ---
-# ==========================================
-st.markdown("### 🌍 Market Ticker")
-indices = [("SPY", "S&P 500"), ("QQQ", "Nasdaq"), ("GLD", "Gold")]
-t_cols = st.columns(len(indices))
-
-for i, (sym, name) in enumerate(indices):
-    data = fetch_ticker_data(sym)
-    if data:
-        color = "text-green" if data['change_pct'] >= 0 else "text-red"
-        t_cols[i].markdown(f"**{name}**<br><span style='font-size:1.2rem;'>${data['price']:.2f}</span> <small class='{color}'>{data['change_pct']:+.2f}%</small>", unsafe_allow_html=True)
+def display_ticker():
+    st.markdown("### 🌍 Live Market Monitor")
+    indices = [("SPY", "S&P 500"), ("QQQ", "Nasdaq"), ("GLD", "Gold")]
+    cols = st.columns(len(indices))
+    for i, (sym, name) in enumerate(indices):
+        data = fetch_market_price(sym)
+        if data:
+            color = "text-green" if data['change_pct'] >= 0 else "text-red"
+            cols[i].markdown(f"**{name}**<br><span style='font-size:1.2rem;'>${data['price']:.2f}</span> <small class='{color}'>{data['change_pct']:+.2f}%</small>", unsafe_allow_html=True)
 
 # ==========================================
-# --- SIDEBAR CONTROLS ---
-# ==========================================
-with st.sidebar:
-    st.title("⚙️ Controls")
-    if st.button("➕ NEW TRADE", type="primary", use_container_width=True):
-        st.session_state.show_modal = True # פתרון לדיאלוג
-    
-    st.markdown("---")
-    st.session_state.initial_capital = st.number_input("Starting Capital ($)", value=st.session_state.initial_capital)
-    
-    if st.button("⚠️ CLEAR SESSION & DATA", use_container_width=True):
-        st.session_state.trades = []
-        st.rerun()
-
-# ==========================================
-# --- DASHBOARD KPIs ---
-# ==========================================
-total_pnl = sum(t.get('Total Realized P&L', 0.0) for t in st.session_state.trades)
-equity = st.session_state.initial_capital + total_pnl
-roi = (total_pnl / st.session_state.initial_capital * 100) if st.session_state.initial_capital > 0 else 0
-
-st.markdown("## 📊 Dashboard")
-c1, c2, c3, c4 = st.columns(4)
-
-def kpi_card(title, value, is_money=True, color_logic=False, is_percent=False):
-    color_class = ("text-green" if value > 0 else "text-red") if color_logic else ""
-    val_fmt = f"${value:,.2f}" if is_money else (f"{value:+.2f}%" if is_percent else str(value))
-    return f'<div class="metric-card"><div class="metric-label">{title}</div><div class="metric-value {color_class}">{val_fmt}</div></div>'
-
-with c1: st.markdown(kpi_card("Current Equity", equity), unsafe_allow_html=True)
-with c2: st.markdown(kpi_card("Total Realized P&L", total_pnl, True, True), unsafe_allow_html=True)
-with c3: st.markdown(kpi_card("Account ROI", roi, False, True, True), unsafe_allow_html=True)
-with c4: st.markdown(kpi_card("Open Trades", len([t for t in st.session_state.trades if t.get('Status') == 'Open']), False), unsafe_allow_html=True)
-
-# ==========================================
-# --- MODAL: NEW TRADE (Using dialog) ---
+# --- MODAL: NEW TRADE ---
 # ==========================================
 @st.dialog("🚀 New Trade Entry")
 def open_trade_modal():
     asset = st.selectbox("Asset Class", ["Stock", "Future", "Option"])
     symbol = st.text_input("Symbol").upper()
-    multiplier = 100.0 if asset == "Option" else 1.0
+    multiplier = 100.0 if asset == "Option" else 1.0 # פשוט כברירת מחדל
     
-    col_q, col_d = st.columns(2)
-    qty = col_q.number_input("Quantity", min_value=1, value=1)
-    direction = col_d.radio("Direction", ["Long", "Short"], horizontal=True)
+    c1, c2 = st.columns(2)
+    direction = c1.radio("Direction", ["Long", "Short"], horizontal=True)
+    qty = c2.number_input("Quantity", min_value=1, value=1)
     
-    col_da, col_pr = st.columns(2)
-    entry_date = col_da.date_input("Entry Date")
-    entry_price = col_pr.number_input("Entry Price ($)", min_value=0.01)
+    p1, p2 = st.columns(2)
+    entry_date = p1.date_input("Entry Date")
+    entry_price = p2.number_input("Entry Price ($)", min_value=0.01, format="%.2f")
     
     if st.button("Open Position", type="primary", use_container_width=True):
         st.session_state.trades.append({
@@ -140,27 +98,47 @@ def open_trade_modal():
         })
         st.rerun()
 
-if st.get('show_modal', False):
-    open_trade_modal()
-    st.session_state.show_modal = False
+# ==========================================
+# --- MAIN DASHBOARD ---
+# ==========================================
+display_ticker()
+st.title("📈 ProTrade Journal Pro")
+
+# חישובים מאובטחים (QA: מניעת KeyError מנתונים ישנים)
+total_pnl = sum(t.get('Total Realized P&L', 0.0) for t in st.session_state.trades)
+equity = st.session_state.initial_capital + total_pnl
+roi = (total_pnl / st.session_state.initial_capital * 100) if st.session_state.initial_capital > 0 else 0
+
+c1, c2, c3, c4 = st.columns(4)
+def kpi(title, val, color=False, is_pct=False):
+    cls = ("text-green" if val > 0 else "text-red") if color else ""
+    fmt = f"${val:,.2f}" if not is_pct else f"{val:+.2f}%"
+    st.markdown(f'<div class="metric-card"><div class="metric-label">{title}</div><div class="metric-value {cls}">{fmt}</div></div>', unsafe_allow_html=True)
+
+with c1: kpi("Current Equity", equity)
+with c2: kpi("Total Realized P&L", total_pnl, True)
+with c3: kpi("Account ROI", roi, True, True)
+with c4: 
+    open_count = len([t for t in st.session_state.trades if t.get('Status') == 'Open'])
+    st.markdown(f'<div class="metric-card"><div class="metric-label">Open Positions</div><div class="metric-value">{open_count}</div></div>', unsafe_allow_html=True)
 
 # ==========================================
 # --- TABS: ACTIVE & HISTORY ---
 # ==========================================
 st.markdown("---")
-tab_active, tab_history = st.tabs(["📂 Active Trades", "📜 Detailed History"])
+tab_act, tab_hist = st.tabs(["📂 Active Trades", "📜 Detailed History"])
 
-with tab_active:
+with tab_act:
     active = [t for t in st.session_state.trades if t.get('Status') == 'Open']
     if not active: st.info("No active trades.")
     for i, trade in enumerate(active):
-        with st.expander(f"🔵 {trade['Symbol']} - {trade['Direction']} | Remaining: {trade['Remaining Qty']}"):
+        with st.expander(f"🔵 {trade['Symbol']} | Rem: {trade['Remaining Qty']}"):
             cq, cp, cc = st.columns(3)
-            sq = cq.number_input("Qty to Sell", 1, trade['Remaining Qty'], key=f"sq_{trade['ID']}")
-            sp = cp.number_input("Exit Price", 0.0, key=f"sp_{trade['ID']}")
-            sc = cc.number_input("Comm ($)", 0.0, key=f"sc_{trade['ID']}")
+            sq = cq.number_input("Qty to Sell", 1, trade['Remaining Qty'], key=f"q_{trade['ID']}")
+            sp = cp.number_input("Exit Price", 0.0, format="%.2f", key=f"p_{trade['ID']}")
+            sc = cc.number_input("Comm ($)", 0.0, key=f"c_{trade['ID']}")
             
-            if st.button("Execute Partial Sale", key=f"btn_{trade['ID']}", type="primary"):
+            if st.button("Execute Sale", key=f"btn_{trade['ID']}", type="primary"):
                 m = trade.get('Multiplier', 1.0)
                 diff = (sp - trade['Entry Price']) if trade['Direction'] == "Long" else (trade['Entry Price'] - sp)
                 pnl = (diff * sq * m) - sc
@@ -168,19 +146,16 @@ with tab_active:
                 trade.setdefault('Exits', []).append({"qty": sq, "price": sp, "pnl": pnl, "date": datetime.now().strftime("%Y-%m-%d %H:%M")})
                 trade['Remaining Qty'] -= sq
                 trade['Total Realized P&L'] += pnl
-                if trade['Remaining Qty'] <= 0: 
-                    trade['Status'] = "Closed"
-                    trade['Exit Date'] = datetime.now().strftime("%Y-%m-%d")
+                if trade['Remaining Qty'] <= 0: trade['Status'] = "Closed"; trade['Exit Date'] = datetime.now().strftime("%Y-%m-%d")
                 st.rerun()
 
-with tab_history:
+with tab_hist:
     closed = [t for t in st.session_state.trades if t.get('Status') == 'Closed']
     if not closed: st.write("History is empty.")
     for t in closed:
         invested = t['Original Qty'] * t['Entry Price'] * t.get('Multiplier', 1.0)
         pnl = t.get('Total Realized P&L', 0.0)
         roi_t = (pnl / invested * 100) if invested > 0 else 0
-        
         sold_val = sum(e['qty'] * e['price'] * t.get('Multiplier', 1.0) for e in t.get('Exits', []))
         avg_exit = (sold_val / (t['Original Qty'] * t.get('Multiplier', 1.0))) if t['Original Qty'] > 0 else 0
         
@@ -201,3 +176,15 @@ with tab_history:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+# ==========================================
+# --- SIDEBAR CONTROLS ---
+# ==========================================
+with st.sidebar:
+    st.title("⚙️ Controls")
+    if st.button("➕ NEW TRADE", type="primary", use_container_width=True): open_trade_modal()
+    st.markdown("---")
+    st.session_state.initial_capital = st.number_input("Account Start ($)", value=st.session_state.initial_capital)
+    if st.button("⚠️ CLEAR ALL DATA & REBOOT", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
