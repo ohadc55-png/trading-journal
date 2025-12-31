@@ -1,24 +1,41 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from datetime import datetime
-from supabase import create_client, Client
 import requests
+from supabase import create_client, Client
 
 # ==========================================
 # --- CONFIGURATION & SETUP ---
 # ==========================================
-st.set_page_config(page_title="ProTrade Journal Cloud", layout="wide", page_icon="☁️")
+st.set_page_config(page_title="ProTrade Cloud", layout="wide", page_icon="☁️")
 
-# חיבור למסד הנתונים באמצעות ה-Secrets שהגדרת
+# מפתח לנתוני שוק (כפי שסיפקת)
+MARKET_API_KEY = 'Y2S0SAL1NRF0Z40J'
+
+# הגדרת מכפילים לחוזים עתידיים (החזרתי את הרשימה המלאה)
+FUTURE_MULTIPLIERS = {
+    "ES (S&P 500)": 50, "MES (Micro S&P)": 5,
+    "NQ (Nasdaq 100)": 20, "MNQ (Micro Nasdaq)": 2,
+    "RTY (Russell 2000)": 50, "M2K (Micro Russell)": 5,
+    "GC (Gold)": 100, "MGC (Micro Gold)": 10,
+    "CL (Crude Oil)": 1000, "SI (Silver)": 5000
+}
+
+# חיבור למסד הנתונים
 @st.cache_resource
 def init_connection():
-    url = st.secrets["SUPABASE_URL"]
-    key = st.secrets["SUPABASE_KEY"]
-    return create_client(url, key)
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+        return create_client(url, key)
+    except Exception as e:
+        st.error(f"Supabase connection failed: {e}")
+        return None
 
 supabase = init_connection()
 
-# CSS עיצוב
+# CSS מקצועי (כמו בגרסת ה-Pro)
 st.markdown("""
 <style>
     .stApp { background-color: #0E1117; font-family: 'Roboto', sans-serif; }
@@ -29,10 +46,19 @@ st.markdown("""
         padding: 20px;
         margin-bottom: 10px;
     }
-    .metric-value { color: #F3F4F6; font-size: 1.8rem; font-weight: 700; }
     .metric-label { color: #9CA3AF; font-size: 0.85rem; font-weight: 600; text-transform: uppercase; }
+    .metric-value { color: #F3F4F6; font-size: 1.8rem; font-weight: 700; }
     .text-green { color: #34D399 !important; }
     .text-red { color: #F87171 !important; }
+    
+    .ticker-bar {
+        background: #111827;
+        border-bottom: 1px solid #374151;
+        padding: 10px 20px;
+        margin-bottom: 20px;
+        display: flex;
+        justify-content: space-around;
+    }
     .history-card { background-color: #1F2937; border-radius: 10px; padding: 20px; margin-bottom: 15px; border-right: 8px solid #374151; }
     .history-win { border-right: 8px solid #34D399; }
     .history-loss { border-right: 8px solid #F87171; }
@@ -42,69 +68,109 @@ st.markdown("""
 # ==========================================
 # --- AUTHENTICATION (מערכת כניסה) ---
 # ==========================================
-if 'user' not in st.session_state:
-    st.session_state.user = None
+if 'user' not in st.session_state: st.session_state.user = None
 
 def login_page():
-    st.title("🔐 ProTrade Login")
-    
-    tab1, tab2 = st.tabs(["Log In", "Sign Up"])
-    
-    with tab1:
-        email = st.text_input("Email", key="login_email")
-        password = st.text_input("Password", type="password", key="login_pass")
+    st.title("🔐 ProTrade Cloud Login")
+    t1, t2 = st.tabs(["Log In", "Sign Up"])
+    with t1:
+        email = st.text_input("Email", key="l_email")
+        password = st.text_input("Password", type="password", key="l_pass")
         if st.button("Log In", type="primary"):
             try:
                 res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 st.session_state.user = res.user
                 st.rerun()
-            except Exception as e:
-                st.error(f"Error: {e}")
-                
-    with tab2:
-        new_email = st.text_input("Email", key="signup_email")
-        new_password = st.text_input("Password", type="password", key="signup_pass")
+            except Exception as e: st.error(f"Login failed: {e}")
+    with t2:
+        nem = st.text_input("Email", key="s_email")
+        npass = st.text_input("Password", type="password", key="s_pass")
         if st.button("Sign Up"):
             try:
-                res = supabase.auth.sign_up({"email": new_email, "password": new_password})
-                st.success("Account created! Please check your email to verify (or log in if auto-confirmed).")
-            except Exception as e:
-                st.error(f"Error: {e}")
+                supabase.auth.sign_up({"email": nem, "password": npass})
+                st.success("User created! Check email or log in.")
+            except Exception as e: st.error(f"Sign up failed: {e}")
 
-# אם המשתמש לא מחובר - תעצור כאן ותציג מסך כניסה
 if not st.session_state.user:
     login_page()
     st.stop()
 
 # ==========================================
-# --- DATA MANAGEMENT (DB Functions) ---
+# --- API & MARKET DATA (החזרתי את זה!) ---
+# ==========================================
+@st.cache_data(ttl=60)
+def fetch_market_price(symbol):
+    try:
+        url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={symbol}&apikey={MARKET_API_KEY}"
+        res = requests.get(url, timeout=5).json()
+        q = res.get('Global Quote', {})
+        return {
+            'price': float(q.get('05. price', 0)),
+            'change_pct': float(q.get('10. change percent', '0').replace('%', ''))
+        }
+    except: return None
+
+def display_ticker():
+    st.markdown("### 🌍 Live Market")
+    indices = [("SPY", "S&P 500"), ("QQQ", "Nasdaq"), ("GLD", "Gold")]
+    cols = st.columns(len(indices))
+    for i, (sym, name) in enumerate(indices):
+        data = fetch_market_price(sym)
+        if data:
+            c = "text-green" if data['change_pct'] >= 0 else "text-red"
+            cols[i].markdown(f"**{name}**<br><span style='font-size:1.2rem;'>${data['price']:.2f}</span> <small class='{c}'>{data['change_pct']:+.2f}%</small>", unsafe_allow_html=True)
+
+# ==========================================
+# --- DB HELPERS ---
 # ==========================================
 user_id = st.session_state.user.id
 
 def fetch_trades():
-    # שליפת טריידים מהמסד (RLS דואג שנראה רק את שלנו)
-    response = supabase.table('trades').select('*').order('created_at', desc=True).execute()
-    return response.data
+    return supabase.table('trades').select('*').order('created_at', desc=True).execute().data
 
 def fetch_exits(trade_id):
-    response = supabase.table('exits').select('*').eq('trade_id', trade_id).execute()
-    return response.data
+    return supabase.table('exits').select('*').eq('trade_id', trade_id).execute().data
 
 # ==========================================
-# --- MAIN APP LOGIC ---
+# --- MAIN APP ---
 # ==========================================
+display_ticker() # הטיקר חזר!
 st.sidebar.title(f"👤 {st.session_state.user.email}")
 if st.sidebar.button("Log Out"):
     supabase.auth.sign_out()
     st.session_state.user = None
     st.rerun()
 
-# Modal: New Trade
+# --- MODAL: NEW TRADE (לוגיקה מלאה) ---
 @st.dialog("🚀 New Trade Entry")
 def open_trade_modal():
+    # בחירת נכס כמו בגרסת ה-Pro
     asset = st.selectbox("Asset Class", ["Stock", "Future", "Option"])
-    symbol = st.text_input("Symbol").upper()
-    multiplier = 100.0 if asset == "Option" else 1.0
+    
+    symbol_final = ""
+    multiplier = 1.0
+    
+    if asset == "Stock":
+        symbol_final = st.text_input("Ticker Symbol").upper()
+    
+    elif asset == "Future":
+        # החזרתי את רשימת החוזים והמכפילים
+        fut_key = st.selectbox("Contract", list(FUTURE_MULTIPLIERS.keys()))
+        symbol_final = fut_key.split(" ")[0]
+        multiplier = FUTURE_MULTIPLIERS[fut_key]
+        
+    elif asset == "Option":
+        # החזרתי את הממשק המלא לאופציות
+        c1, c2 = st.columns(2)
+        und = c1.text_input("Underlying").upper()
+        o_type = c2.selectbox("Type", ["Call", "Put"])
+        c3, c4 = st.columns(2)
+        strike = c3.text_input("Strike")
+        exp = c4.date_input("Expiry")
+        symbol_final = f"{und} {o_type} {strike} {exp.strftime('%d%b%y')}"
+        multiplier = 100.0
+
+    st.divider()
     
     c1, c2 = st.columns(2)
     direction = c1.radio("Direction", ["Long", "Short"], horizontal=True)
@@ -112,15 +178,15 @@ def open_trade_modal():
     
     p1, p2 = st.columns(2)
     entry_date = p1.date_input("Entry Date")
-    entry_price = p2.number_input("Entry Price ($)", min_value=0.01)
+    entry_price = p2.number_input("Entry Price ($)", min_value=0.01, format="%.2f")
     
-    strategy = st.selectbox("Strategy", ["Breakout", "Pullback", "Trend", "Level"])
+    strategy = st.selectbox("Strategy", ["Breakout", "Pullback", "Trend", "Reversal"])
     
-    if st.button("Open Position", type="primary"):
+    if st.button("Open Position", type="primary", use_container_width=True):
         new_trade = {
             "user_id": user_id,
             "asset_class": asset,
-            "symbol": symbol,
+            "symbol": symbol_final,
             "direction": direction,
             "entry_date": entry_date.strftime("%Y-%m-%d"),
             "entry_price": entry_price,
@@ -130,38 +196,33 @@ def open_trade_modal():
             "status": "Open",
             "strategy": strategy
         }
-        # שמירה ב-Supabase
+        # שליחה ל-Supabase
         supabase.table('trades').insert(new_trade).execute()
+        st.success("Trade Saved to Cloud!")
         st.rerun()
 
-# ==========================================
-# --- DASHBOARD ---
-# ==========================================
-st.title("📈 ProTrade Cloud")
-
-# שליפת נתונים בזמן אמת מהמסד
-my_trades = fetch_trades()
-open_trades = [t for t in my_trades if t['status'] == 'Open']
-
-# חישוב P&L כולל (דורש לוגיקה מסוימת כי הנתונים מגיעים כרשימה)
-# הערה: כרגע נציג P&L ממומש בסיסי אם יש עמודת P&L בטבלה, או נחשב דינמית בעתיד
-# לצורך פשטות: נניח שיש לנו שדה מחושב או שנחשב מקומית
-total_pnl = 0 
-# כאן נוכל להוסיף לוגיקה מורכבת יותר של שליפת ה-Exits וסיכום הרווח
-
-c1, c2, c3 = st.columns(3)
-with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Open Trades</div><div class="metric-value">{len(open_trades)}</div></div>', unsafe_allow_html=True)
-
-# כפתור הוספה
 if st.sidebar.button("➕ NEW TRADE", type="primary"):
     open_trade_modal()
 
-# ==========================================
-# --- TABS ---
-# ==========================================
-tab_act, tab_hist = st.tabs(["📂 Active Trades", "📜 History"])
+# --- DASHBOARD & LOGIC ---
+st.title("📈 ProTrade Journal Cloud")
 
-with tab_act:
+my_trades = fetch_trades()
+open_trades = [t for t in my_trades if t['status'] == 'Open']
+
+# חישוב P&L ממומש (בערך משוער)
+total_realized_pnl = 0
+# לוגיקה עתידית: לרוץ על כל ה-Exits ולסכום PnL
+
+# כרטיסי KPI
+c1, c2, c3 = st.columns(3)
+with c1: st.markdown(f'<div class="metric-card"><div class="metric-label">Open Trades</div><div class="metric-value">{len(open_trades)}</div></div>', unsafe_allow_html=True)
+with c2: st.markdown(f'<div class="metric-card"><div class="metric-label">Est. Realized P&L</div><div class="metric-value text-green">${total_realized_pnl}</div></div>', unsafe_allow_html=True)
+
+# --- TABS ---
+t_active, t_hist = st.tabs(["📂 Active Trades", "📜 History"])
+
+with t_active:
     if not open_trades: st.info("No active trades.")
     for t in open_trades:
         with st.expander(f"🔵 {t['symbol']} | {t['direction']} | Rem: {t['remaining_qty']}"):
@@ -172,42 +233,39 @@ with tab_act:
             if st.button("Execute Sale", key=f"btn_{t['id']}"):
                 m = float(t['multiplier'])
                 entry = float(t['entry_price'])
+                # חישוב P&L נכון
                 diff = (sp - entry) if t['direction'] == "Long" else (entry - sp)
                 pnl = diff * sq * m
                 
-                # 1. הוספת רשומה לטבלת exits
+                # 1. שמירת היציאה
                 supabase.table('exits').insert({
-                    "trade_id": t['id'],
-                    "exit_qty": sq,
-                    "exit_price": sp,
-                    "pnl": pnl
+                    "trade_id": t['id'], "exit_qty": sq, "exit_price": sp, "pnl": pnl
                 }).execute()
                 
-                # 2. עדכון טבלת trades
+                # 2. עדכון הטרייד
                 new_rem = t['remaining_qty'] - sq
-                update_data = {"remaining_qty": new_rem}
-                if new_rem <= 0:
-                    update_data["status"] = "Closed"
+                upd = {"remaining_qty": new_rem}
+                if new_rem <= 0: upd["status"] = "Closed"
                 
-                supabase.table('trades').update(update_data).eq('id', t['id']).execute()
+                supabase.table('trades').update(upd).eq('id', t['id']).execute()
                 st.rerun()
 
-with tab_hist:
+with t_hist:
     closed = [t for t in my_trades if t['status'] == 'Closed']
     if not closed: st.write("History is empty.")
     for t in closed:
-        # כאן צריך לשלוף את ה-Exits כדי לחשב P&L סופי
+        # שליפת רווח סופי
         exits = fetch_exits(t['id'])
-        total_trade_pnl = sum(e['pnl'] for e in exits)
-        
-        cls = "history-win" if total_trade_pnl >= 0 else "history-loss"
-        clr = "text-green" if total_trade_pnl >= 0 else "text-red"
+        final_pnl = sum(e['pnl'] for e in exits)
+        cls = "history-win" if final_pnl >= 0 else "history-loss"
+        clr = "text-green" if final_pnl >= 0 else "text-red"
         
         st.markdown(f"""
         <div class="history-card {cls}">
             <div style="display: flex; justify-content: space-between;">
                 <b>{t['symbol']}</b>
-                <span class="{clr}">Total P&L: ${total_trade_pnl:,.2f}</span>
+                <span class="{clr}">{final_pnl:+,.2f}$</span>
             </div>
+            <small>Strategy: {t.get('strategy', 'N/A')}</small>
         </div>
         """, unsafe_allow_html=True)
